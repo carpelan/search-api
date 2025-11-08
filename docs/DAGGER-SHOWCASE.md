@@ -34,7 +34,7 @@ Our Dagger pipeline demonstrates comprehensive security automation:
 // .dagger/main.go - Security-First CI/CD in Go code
 
 // Security Gates (Fail-Fast)
-dagger call secret-scan --source=.       // GitLeaks
+dagger call secret-scan --source=.       // TruffleHog
 dagger call sast-scan --source=.         // Semgrep
 dagger call dependency-scan --source=.   // Trivy FS
 dagger call iac-scan --source=.          // Checkov
@@ -213,7 +213,7 @@ dagger-pipeline:
 ✅ **Flexible** - Easy to extend and modify
 
 **Security Tools Integrated:**
-- GitLeaks (secret scanning)
+- TruffleHog (secret scanning with verification)
 - Semgrep (SAST)
 - Trivy (dependency + container scanning)
 - Checkov (IaC security)

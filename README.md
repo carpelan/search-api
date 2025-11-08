@@ -21,7 +21,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 
 ### 🛡️ Security Gates (Fail-Fast)
 
-**GATE 1: 🔐 Secret Scanning** - GitLeaks detects hardcoded secrets (BLOCKS pipeline)
+**GATE 1: 🔐 Secret Scanning** - TruffleHog detects hardcoded secrets (BLOCKS pipeline)
 **GATE 2: 🛡️ SAST** - Semgrep finds security vulnerabilities in code (BLOCKS pipeline)
 **GATE 3: 🔒 Dependency Scan** - Trivy checks for vulnerable packages (BLOCKS pipeline)
 **GATE 4: ☸️ IaC Security** - Checkov validates Kubernetes manifests
@@ -30,7 +30,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 
 ### Complete Pipeline Steps
 
-1. ✅ **Secret Scanning** - GitLeaks (enforced, fails on secrets)
+1. ✅ **Secret Scanning** - TruffleHog (enforced, fails on secrets)
 2. ✅ **SAST** - Semgrep security analysis (enforced, fails on vulnerabilities)
 3. ✅ **Build & Unit Test** - Compilation and testing
 4. ✅ **Code Quality** - dotnet format validation
@@ -50,7 +50,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 ### 🎯 Security Features Implemented
 
 **Shift-Left Security** ✅
-- ✅ Secret scanning with enforcement (GitLeaks)
+- ✅ Secret scanning with enforcement (TruffleHog)
 - ✅ SAST with enforcement (Semgrep) - static code analysis
 - ✅ DAST with enforcement (OWASP ZAP) - dynamic runtime testing
 - ✅ Dependency vulnerability scanning with enforcement (Trivy)
@@ -76,7 +76,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 
 | Check Type | Tool | Severity Threshold | Action |
 |------------|------|-------------------|--------|
-| Secrets | GitLeaks | Any | **FAIL** |
+| Secrets | TruffleHog | Any | **FAIL** |
 | Code Vulnerabilities (SAST) | Semgrep | ERROR, WARNING | **FAIL** |
 | Dependencies | Trivy | HIGH, CRITICAL | **FAIL** |
 | Container | Trivy | HIGH, CRITICAL | **FAIL** |
@@ -228,8 +228,10 @@ See **[DAGGER-SHOWCASE.md](docs/DAGGER-SHOWCASE.md)** for:
 This pipeline implements **defense-in-depth** with multiple security layers:
 
 **1. Secret Detection** 🔐
-- Tool: GitLeaks
+- Tool: TruffleHog
 - Scans for hardcoded credentials, API keys, tokens
+- Features: Secret verification, 800+ credential detectors
+- Detects: AWS keys, GitHub tokens, Slack tokens, database credentials, etc.
 - Enforcement: **BLOCKS** pipeline on detection
 
 **2. Static Application Security Testing (SAST)** 🛡️
@@ -276,7 +278,7 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 
 | Category | Tool | Purpose | Enforcement |
 |----------|------|---------|-------------|
-| Secrets | GitLeaks | Find leaked credentials | ✅ Enforced |
+| Secrets | TruffleHog | Find & verify leaked credentials | ✅ Enforced |
 | SAST | Semgrep | Code vulnerability analysis | ✅ Enforced |
 | DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
 | Dependencies | Trivy | Package vulnerabilities | ✅ Enforced |

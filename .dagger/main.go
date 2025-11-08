@@ -26,24 +26,30 @@ func (m *SearchApi) Build(
 		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}), nil
 }
 
-// SecretScan scans for hardcoded secrets using GitLeaks
+// SecretScan scans for hardcoded secrets using TruffleHog
 func (m *SearchApi) SecretScan(
 	ctx context.Context,
 	// +optional
 	// +defaultPath="."
 	source *dagger.Directory,
 ) (string, error) {
-	// Scan with GitLeaks - ENFORCED (fails if secrets found)
+	// Scan with TruffleHog - ENFORCED (fails if secrets found)
+	// TruffleHog verifies secrets and has better detection than GitLeaks
 	output, err := dag.Container().
-		From("zricethezav/gitleaks:latest").
+		From("trufflesecurity/trufflehog:latest").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
-			"detect",
-			"--source", ".",
-			"--no-git",
-			"--verbose",
-			"--exit-code", "1", // FAIL if secrets found
+			"filesystem",
+			"/src",
+			"--json",                    // JSON output for parsing
+			"--no-update",               // Don't update detectors
+			"--fail",                    // Exit with error if secrets found
+			"--concurrency=10",          // Parallel scanning
+			"--exclude-paths=.git",      // Skip .git directory
+			"--exclude-paths=node_modules", // Skip dependencies
+			"--exclude-paths=bin",       // Skip binaries
+			"--exclude-paths=obj",       // Skip build artifacts
 		}).
 		Stdout(ctx)
 
