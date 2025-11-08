@@ -1,0 +1,57 @@
+{
+  "name": "Search API - C# with Dagger",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:8.0",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true
+    },
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.21"
+    },
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "latest"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csharp",
+        "ms-dotnettools.csdevkit",
+        "golang.go",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "dotnet.defaultSolution": "SearchApi.sln"
+      }
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "forwardPorts": [8080, 8983, 5000],
+  "portsAttributes": {
+    "8080": {
+      "label": "Search API",
+      "onAutoForward": "notify"
+    },
+    "8983": {
+      "label": "Solr",
+      "onAutoForward": "notify"
+    },
+    "5000": {
+      "label": "Local Registry",
+      "onAutoForward": "ignore"
+    }
+  },
+
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "ASPNETCORE_ENVIRONMENT": "Development",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1"
+  }
+}
