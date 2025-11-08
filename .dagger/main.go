@@ -11,7 +11,12 @@ import (
 type SearchApi struct{}
 
 // Build the C# application and run unit tests
-func (m *SearchApi) Build(ctx context.Context, source *dagger.Directory) (*dagger.Container, error) {
+func (m *SearchApi) Build(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (*dagger.Container, error) {
 	return dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
@@ -22,7 +27,12 @@ func (m *SearchApi) Build(ctx context.Context, source *dagger.Directory) (*dagge
 }
 
 // SecretScan scans for hardcoded secrets using GitLeaks
-func (m *SearchApi) SecretScan(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) SecretScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Scan with GitLeaks - ENFORCED (fails if secrets found)
 	output, err := dag.Container().
 		From("zricethezav/gitleaks:latest").
@@ -45,7 +55,12 @@ func (m *SearchApi) SecretScan(ctx context.Context, source *dagger.Directory) (s
 }
 
 // SastScan performs Static Application Security Testing using Semgrep
-func (m *SearchApi) SastScan(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) SastScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Scan with Semgrep - ENFORCED (fails on HIGH severity security issues)
 	// Focuses on OWASP Top 10 and common C# vulnerabilities
 	output, err := dag.Container().
@@ -80,7 +95,12 @@ func (m *SearchApi) SastScan(ctx context.Context, source *dagger.Directory) (str
 }
 
 // DependencyScan scans dependencies for vulnerabilities with enforcement
-func (m *SearchApi) DependencyScan(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) DependencyScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Using Trivy for comprehensive dependency scanning with enforcement
 	output, err := dag.Container().
 		From("aquasec/trivy:latest").
@@ -104,7 +124,12 @@ func (m *SearchApi) DependencyScan(ctx context.Context, source *dagger.Directory
 }
 
 // IacScan scans Infrastructure as Code (Kubernetes manifests) for security issues
-func (m *SearchApi) IacScan(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) IacScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Scan Kubernetes manifests with Checkov - ENFORCED
 	output, err := dag.Container().
 		From("bridgecrew/checkov:latest").
@@ -129,7 +154,12 @@ func (m *SearchApi) IacScan(ctx context.Context, source *dagger.Directory) (stri
 }
 
 // Run static analysis with dotnet format and analyzers
-func (m *SearchApi) StaticAnalysis(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) StaticAnalysis(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	container := dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
@@ -149,7 +179,12 @@ func (m *SearchApi) StaticAnalysis(ctx context.Context, source *dagger.Directory
 }
 
 // BuildContainer creates the production Docker image
-func (m *SearchApi) BuildContainer(ctx context.Context, source *dagger.Directory) *dagger.Container {
+func (m *SearchApi) BuildContainer(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) *dagger.Container {
 	return dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
@@ -177,7 +212,12 @@ func (m *SearchApi) BuildContainer(ctx context.Context, source *dagger.Directory
 }
 
 // GenerateSBOM creates a Software Bill of Materials
-func (m *SearchApi) GenerateSbom(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) GenerateSbom(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Using Syft to generate SBOM
 	sbom, err := dag.Container().
 		From("anchore/syft:latest").
@@ -464,6 +504,8 @@ func (m *SearchApi) PushToHarbor(
 // FullPipeline runs the complete security-first CI/CD pipeline
 func (m *SearchApi) FullPipeline(
 	ctx context.Context,
+	// +optional
+	// +defaultPath="."
 	source *dagger.Directory,
 	// +optional
 	harborUrl string,

@@ -113,12 +113,11 @@ This complexity showcases where security scanning fits in a realistic CI/CD pipe
 ### Run the Full Pipeline
 
 ```bash
-# Run the complete CI/CD pipeline
-dagger call full-pipeline --source=.
+# Run the complete CI/CD pipeline (source defaults to current directory)
+dagger call full-pipeline
 
 # With Harbor registry push
 dagger call full-pipeline \
-  --source=. \
   --harbor-url=harbor.example.com \
   --harbor-username=env:HARBOR_USERNAME \
   --harbor-password=env:HARBOR_PASSWORD \
@@ -129,21 +128,21 @@ dagger call full-pipeline \
 ### Individual Pipeline Steps
 
 ```bash
-# Security Gates
-dagger call secret-scan --source=.              # Scan for hardcoded secrets
-dagger call sast-scan --source=.                # Static application security testing
-dagger call dependency-scan --source=.          # Dependency vulnerability scan
-dagger call iac-scan --source=.                 # Infrastructure as Code scan
+# Security Gates (no --source needed, defaults to current directory)
+dagger call secret-scan              # Scan for hardcoded secrets
+dagger call sast-scan                # Static application security testing
+dagger call dependency-scan          # Dependency vulnerability scan
+dagger call iac-scan                 # Infrastructure as Code scan
 
 # Build and Test
-dagger call build --source=.                    # Build and run unit tests
-dagger call static-analysis --source=.          # Code quality checks
+dagger call build                    # Build and run unit tests
+dagger call static-analysis          # Code quality checks
 
 # SBOM and Container
-dagger call generate-sbom --source=.            # Generate software bill of materials
-dagger call build-container --source=.          # Build container image
-dagger call scan-container \                    # Scan container for vulnerabilities
-  --container=$(dagger call build-container --source=.)
+dagger call generate-sbom            # Generate software bill of materials
+dagger call build-container          # Build container image
+dagger call scan-container \         # Scan container for vulnerabilities
+  --container=$(dagger call build-container)
 
 # Setup K3s cluster for testing
 dagger call setup-k3s
