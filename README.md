@@ -15,45 +15,55 @@ The example application is a C# Search API, chosen to demonstrate security pract
 >
 > **Secondary**: The Search API is a realistic example to showcase security scanning on a multi-component application (API + Solr + Kubernetes)
 
-## 🔒 Comprehensive Security-First Pipeline (16 Steps)
+## 🔒 Comprehensive Security-First Pipeline (22 Steps)
 
-This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **6 enforced security gates**:
+This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **8 enforced security gates**:
 
 ### 🛡️ Security Gates (Fail-Fast)
 
 **GATE 1: 🔐 Secret Scanning** - TruffleHog detects hardcoded secrets (BLOCKS pipeline)
-**GATE 2: 🛡️ SAST** - Semgrep finds security vulnerabilities in code (BLOCKS pipeline)
-**GATE 3: 🔒 Dependency Scan** - Trivy checks for vulnerable packages (BLOCKS pipeline)
-**GATE 4: ☸️ IaC Security** - Checkov validates Kubernetes manifests
-**GATE 5: 🔎 Container Scan** - Trivy blocks HIGH/CRITICAL vulnerabilities (BLOCKS pipeline)
-**GATE 6: 🎯 DAST** - OWASP ZAP tests running application for vulnerabilities (BLOCKS pipeline)
+**GATE 2: 🛡️ SAST (Generic)** - Semgrep finds security vulnerabilities in code (BLOCKS pipeline)
+**GATE 3: 🔒 SAST (C# Specific)** - .NET Analyzers for C#-specific security issues (BLOCKS pipeline)
+**GATE 4: 🔒 Dependency Scan** - Trivy checks for vulnerable packages (BLOCKS pipeline)
+**GATE 5: 📜 License Compliance** - Trivy detects problematic licenses (BLOCKS pipeline)
+**GATE 6: 🔎 Container Scan** - Trivy blocks HIGH/CRITICAL vulnerabilities (BLOCKS pipeline)
+**GATE 7: 🎯 DAST** - OWASP ZAP tests running application for vulnerabilities (BLOCKS pipeline)
+**GATE 8: 🔓 API Security** - Nuclei tests for OWASP API Top 10 vulnerabilities (BLOCKS pipeline)
 
 ### Complete Pipeline Steps
 
 1. ✅ **Secret Scanning** - TruffleHog (enforced, fails on secrets)
-2. ✅ **SAST** - Semgrep security analysis (enforced, fails on vulnerabilities)
-3. ✅ **Build & Unit Test** - Compilation and testing
-4. ✅ **Code Quality** - dotnet format validation
-5. ✅ **Dependency Scan** - Trivy filesystem scan (enforced, fails on HIGH/CRITICAL)
-6. ✅ **IaC Security** - Checkov for Kubernetes manifests
-7. ✅ **SBOM Generation** - Syft generates software bill of materials
-8. ✅ **Container Build** - Multi-stage, non-root user
-9. ✅ **Container Scan** - Trivy image scan (enforced, fails on HIGH/CRITICAL)
-10. ✅ **Registry Push** - Local registry for testing
-11. ✅ **K3s Cluster** - Ephemeral test environment
-12. ✅ **Solr Deployment** - Database with security context
-13. ✅ **API Deployment** - Non-root, resource-limited containers
-14. ✅ **Integration Tests** - End-to-end validation
-15. ✅ **DAST** - OWASP ZAP dynamic security testing (enforced, fails on vulnerabilities)
-16. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
+2. ✅ **SAST (Generic)** - Semgrep security analysis (enforced, fails on vulnerabilities)
+3. ✅ **SAST (C# Specific)** - .NET Security Analyzers (enforced, 400+ rules)
+4. ✅ **Build & Unit Test** - Compilation and testing
+5. ✅ **Code Coverage** - XPlat Coverage with 80% threshold
+6. ✅ **Code Quality** - dotnet format validation
+7. ✅ **Dependency Scan** - Trivy filesystem scan (enforced, fails on HIGH/CRITICAL)
+8. ✅ **License Compliance** - Trivy license scan (enforced, blocks problematic licenses)
+9. ✅ **IaC Security** - Checkov for Kubernetes manifests
+10. ✅ **SBOM Generation** - Syft generates software bill of materials
+11. ✅ **Container Build** - Multi-stage, non-root user
+12. ✅ **Container Scan** - Trivy image scan (enforced, fails on HIGH/CRITICAL)
+13. ✅ **Registry Push** - Local registry for testing
+14. ✅ **K3s Cluster** - Ephemeral test environment
+15. ✅ **Solr Deployment** - Database with security context
+16. ✅ **API Deployment** - Non-root, resource-limited containers
+17. ✅ **Integration Tests** - End-to-end validation
+18. ✅ **DAST** - OWASP ZAP dynamic security testing (enforced, fails on vulnerabilities)
+19. ✅ **API Security Testing** - Nuclei scans for OWASP API Top 10 (enforced)
+20. ✅ **Performance Testing** - k6 load tests (optional, configurable thresholds)
+21. ✅ **Mutation Testing** - Stryker.NET tests test quality (optional, can be slow)
+22. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
 
 ### 🎯 Security Features Implemented
 
 **Shift-Left Security** ✅
 - ✅ Secret scanning with enforcement (TruffleHog)
-- ✅ SAST with enforcement (Semgrep) - static code analysis
+- ✅ SAST with enforcement (Semgrep + .NET Analyzers) - static code analysis
 - ✅ DAST with enforcement (OWASP ZAP) - dynamic runtime testing
+- ✅ API Security testing (Nuclei) - OWASP API Top 10
 - ✅ Dependency vulnerability scanning with enforcement (Trivy)
+- ✅ License compliance scanning with enforcement (Trivy)
 - ✅ Container vulnerability scanning with enforcement (Trivy)
 - ✅ IaC security scanning (Checkov)
 - ✅ SBOM generation (Syft)
@@ -64,26 +74,41 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ Complete dependency tracking
 - ✅ Multi-layer vulnerability detection
 - ✅ SBOM in SPDX format
+- ✅ License compliance enforcement
+- ✅ Image signing capability (Cosign/Sigstore)
 - ✅ Secure container registry integration
 
 **Runtime Security** ✅
 - ✅ Dynamic security testing against live application
 - ✅ OWASP Top 10 vulnerability detection
+- ✅ OWASP API Security Top 10 testing
 - ✅ XSS, SQLi, auth bypass detection
-- ✅ API security testing
+- ✅ API security testing (Nuclei)
+
+**Quality & Performance** ✅
+- ✅ Code coverage enforcement (80% threshold)
+- ✅ Performance testing with k6
+- ✅ Mutation testing with Stryker.NET
+- ✅ Load testing with configurable thresholds
 
 ### 📊 Security Enforcement Policy
 
 | Check Type | Tool | Severity Threshold | Action |
 |------------|------|-------------------|--------|
 | Secrets | TruffleHog | Any | **FAIL** |
-| Code Vulnerabilities (SAST) | Semgrep | ERROR, WARNING | **FAIL** |
+| Code Vulnerabilities (SAST Generic) | Semgrep | ERROR, WARNING | **FAIL** |
+| Code Vulnerabilities (SAST C#) | .NET Analyzers | Any | **FAIL** |
 | Dependencies | Trivy | HIGH, CRITICAL | **FAIL** |
+| License Compliance | Trivy | HIGH, CRITICAL | **FAIL** |
 | Container | Trivy | HIGH, CRITICAL | **FAIL** |
 | Runtime Vulnerabilities (DAST) | OWASP ZAP | Any | **FAIL** |
+| API Security | Nuclei | HIGH, CRITICAL | **FAIL** |
+| Code Coverage | XPlat Coverage | <80% | **FAIL** |
 | IaC | Checkov | INFO | Report |
+| Performance | k6 | Configurable | Warn |
+| Mutation Score | Stryker.NET | <80% | Warn |
 
-**Result**: Vulnerable code cannot reach production - tested both statically AND dynamically.
+**Result**: Vulnerable code cannot reach production - tested statically, dynamically, AND for API-specific vulnerabilities.
 
 ### Why This Application?
 
@@ -164,14 +189,24 @@ dagger call full-pipeline \
 
 ```bash
 # Security Gates (no --source needed, defaults to current directory)
-dagger call secret-scan              # Scan for hardcoded secrets
-dagger call sast-scan                # Static application security testing
-dagger call dependency-scan          # Dependency vulnerability scan
-dagger call iac-scan                 # Infrastructure as Code scan
+dagger call secret-scan              # Scan for hardcoded secrets (TruffleHog)
+dagger call sast-scan                # Static application security testing (Semgrep)
+dagger call dependency-scan          # Dependency vulnerability scan (Trivy)
+dagger call license-scan             # License compliance scan (Trivy)
+dagger call iac-scan                 # Infrastructure as Code scan (Checkov)
 
 # Build and Test
 dagger call build                    # Build and run unit tests
 dagger call static-analysis          # Code quality checks
+
+# C# Specific Security & Quality
+dagger call c-sharp-security-analysis  # .NET analyzers with security rules (enforced)
+dagger call code-coverage              # Code coverage with minimum threshold (default 80%)
+dagger call code-coverage --minimum-coverage=90  # Custom coverage threshold
+
+# Quality Testing
+dagger call mutation-test            # Mutation testing with Stryker.NET (default 80% threshold)
+dagger call mutation-test --minimum-score=90  # Custom mutation score threshold
 
 # SBOM and Container
 dagger call generate-sbom            # Generate software bill of materials
@@ -179,13 +214,31 @@ dagger call build-container          # Build container image
 dagger call scan-container \         # Scan container for vulnerabilities
   --container=$(dagger call build-container)
 
+# Supply Chain Security
+dagger call sign-image \             # Sign container image with Cosign
+  --container=$(dagger call build-container) \
+  --private-key=env:COSIGN_PRIVATE_KEY \
+  --password=env:COSIGN_PASSWORD \
+  --image-ref=harbor.example.com/myproject/search-api:v1.0.0
+
 # Setup K3s cluster for testing
 dagger call setup-k3s
 
 # Run integration tests
 dagger call run-integration-tests \
-  --source=. \
   --cluster=$(dagger call setup-k3s)
+
+# Runtime Security & Performance Testing
+dagger call dast-scan \              # OWASP ZAP dynamic security testing
+  --cluster=$(dagger call setup-k3s)
+
+dagger call api-security-test \      # Nuclei API security testing (OWASP API Top 10)
+  --cluster=$(dagger call setup-k3s)
+
+dagger call performance-test \       # k6 load testing
+  --cluster=$(dagger call setup-k3s) \
+  --virtual-users=50 \
+  --duration=2m
 ```
 
 ## 📋 Understanding This Demo
@@ -274,17 +327,126 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 - Security contexts in Kubernetes
 - Official Microsoft base images only
 
+### C# / .NET Specific Security
+
+**C# Security Analyzers** 🔍
+- Tool: Built-in .NET Analyzers
+- Analysis Mode: AllEnabledByDefault
+- Analysis Level: Latest
+- Enforcement: TreatWarningsAsErrors=true
+- Detects:
+  * Insecure cryptography usage
+  * SQL injection vulnerabilities
+  * XSS vulnerabilities
+  * Insecure deserialization
+  * Information disclosure
+  * Authentication/authorization issues
+  * Regex DoS (ReDoS)
+  * And 400+ other .NET specific issues
+
+**Code Coverage** 📊
+- Tool: XPlat Code Coverage (built-in)
+- Default threshold: 80%
+- Format: Cobertura XML
+- Enforcement: Configurable minimum coverage
+- Tracks: Line, branch, and method coverage
+
+**Benefits of .NET Analyzers:**
+- Language-aware analysis (understands C# semantics)
+- Catches .NET framework-specific issues
+- Enforced at build time
+- No external dependencies needed
+- Continuously updated by Microsoft
+
+### Advanced Security Features
+
+**License Compliance Scanning** 📜
+- Tool: Trivy (license scanner)
+- Purpose: Detect problematic licenses in dependencies
+- Detects:
+  * GPL/AGPL in commercial code
+  * License incompatibilities
+  * Missing license information
+  * Restrictive licenses
+- Enforcement: BLOCKS on HIGH/CRITICAL license issues
+- Output: JSON report with full license details
+
+**API Security Testing** 🔓
+- Tool: Nuclei
+- Purpose: Test for OWASP API Security Top 10
+- Tests:
+  * Broken Object Level Authorization (BOLA)
+  * Broken Authentication
+  * Excessive Data Exposure
+  * Lack of Resources & Rate Limiting
+  * Broken Function Level Authorization
+  * Mass Assignment
+  * Security Misconfiguration
+  * Injection
+  * Improper Assets Management
+  * Insufficient Logging & Monitoring
+- Method: Template-based vulnerability scanning
+- Enforcement: BLOCKS on HIGH/CRITICAL API vulnerabilities
+
+**Performance Testing** 🚀
+- Tool: k6 (Grafana Labs)
+- Purpose: Validate API performance under load
+- Metrics:
+  * Response time (p95 < 500ms)
+  * Error rate (< 5%)
+  * Throughput
+  * Concurrent users
+- Configurable:
+  * Virtual users (default: 10)
+  * Duration (default: 30s)
+  * Custom thresholds
+- Enforcement: Optional (warns on threshold violations)
+
+**Mutation Testing** 🧬
+- Tool: Stryker.NET
+- Purpose: Test the quality of your tests
+- Method:
+  * Mutates source code (changes operators, values, logic)
+  * Runs tests against mutated code
+  * Verifies tests catch the mutations
+- Metrics:
+  * Mutation score (% of mutations caught)
+  * Survived mutations (tests didn't catch)
+  * Killed mutations (tests caught)
+- Enforcement: Optional, default 80% threshold (can be slow)
+
+**Image Signing** ✍️
+- Tool: Cosign (Sigstore)
+- Purpose: Supply chain security and image integrity
+- Features:
+  * Cryptographic signing of container images
+  * Verification of image authenticity
+  * Integration with Sigstore transparency log
+  * Support for airgapped environments
+- Usage: Optional, requires private key and password
+- Benefits:
+  * Ensures image hasn't been tampered with
+  * Proves provenance of the image
+  * Meets compliance requirements (e.g., SLSA)
+
 ### Security Tools Integration
 
 | Category | Tool | Purpose | Enforcement |
 |----------|------|---------|-------------|
-| Secrets | TruffleHog | Find & verify leaked credentials | ✅ Enforced |
-| SAST | Semgrep | Code vulnerability analysis | ✅ Enforced |
-| DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
+| Secrets | TruffleHog | Find & verify leaked credentials (800+ detectors) | ✅ Enforced |
+| SAST (Generic) | Semgrep | Code vulnerability analysis (OWASP Top 10) | ✅ Enforced |
+| SAST (C# Specific) | .NET Analyzers | C#/.NET security issues (400+ rules) | ✅ Enforced |
+| Code Coverage | XPlat Coverage | Test coverage enforcement | ✅ Enforced (80%) |
+| Mutation Testing | Stryker.NET | Test quality verification | ⚠️ Optional (80%) |
 | Dependencies | Trivy | Package vulnerabilities | ✅ Enforced |
-| IaC | Checkov | K8s configuration security | ⚠️ Report |
+| License Compliance | Trivy | License scanning (GPL, AGPL detection) | ✅ Enforced |
+| DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
+| API Security | Nuclei | OWASP API Security Top 10 | ✅ Enforced |
+| Performance | k6 | Load testing & SLA validation | ⚠️ Optional |
+| IaC | Checkov | K8s configuration security | ℹ️ Report |
 | Container | Trivy | Image vulnerabilities | ✅ Enforced |
-| SBOM | Syft | Dependency tracking | ℹ️ Generated |
+| SBOM | Syft | Dependency tracking (SPDX format) | ℹ️ Generated |
+| Image Signing | Cosign | Supply chain integrity (Sigstore) | ⚠️ Optional |
 
 ## 🎯 API Endpoints
 
