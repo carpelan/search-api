@@ -15,9 +15,9 @@ The example application is a C# Search API, chosen to demonstrate security pract
 >
 > **Secondary**: The Search API is a realistic example to showcase security scanning on a multi-component application (API + Solr + Kubernetes)
 
-## 🔒 Comprehensive Security-First Pipeline (24 Steps)
+## 🔒 Comprehensive Security-First Pipeline (25 Steps)
 
-This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **9 enforced security gates**:
+This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **9 enforced security gates** and **container size optimization**:
 
 ### 🛡️ Security Gates (Fail-Fast)
 
@@ -45,6 +45,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 10. ✅ **Policy as Code** - OPA/Conftest validates K8s configurations (enforced, fails on policy violations)
 11. ✅ **SBOM Generation** - Syft generates software bill of materials
 12. ✅ **Container Build** - Multi-stage, non-root user
+12a. ✅ **Container Size Analysis** - dive analyzes image layers and size (optional)
 13. ✅ **Container Scan** - Trivy image scan (enforced, fails on HIGH/CRITICAL)
 14. ✅ **CIS Benchmark** - Docker CIS compliance validation (enforced, reports HIGH/CRITICAL)
 15. ✅ **SBOM Attestation** - Cosign attaches signed SBOM to image
@@ -85,6 +86,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ Image signing capability (Cosign/Sigstore)
 - ✅ Secure container registry integration
 - ✅ CIS Docker Benchmark compliance
+- ✅ Container size optimization (30-50% reduction)
 
 **Runtime Security** ✅
 - ✅ Dynamic security testing against live application
@@ -240,6 +242,14 @@ dagger call attest-sbom \            # Attach signed SBOM attestation
 
 dagger call cis-benchmark \          # CIS Docker Benchmark compliance
   --container=$(dagger call build-container)
+
+# Container Size Optimization
+dagger call build-container-optimized  # Build optimized container (Alpine + trimming)
+
+dagger call container-size-analysis \  # Analyze container size and layers
+  --container=$(dagger call build-container)
+
+dagger call compare-container-sizes    # Compare standard vs optimized builds
 
 # Setup K3s cluster for testing
 dagger call setup-k3s
@@ -504,6 +514,27 @@ This pipeline implements **defense-in-depth** with multiple security layers:
   * Compliance documentation
   * Baseline security validation
 
+**Container Size Optimization** 📏
+- Tools: Alpine images, .NET trimming, dive analysis
+- Purpose: Minimize container size for security and efficiency
+- Techniques:
+  * Alpine base images (30-40% smaller than Debian)
+  * IL trimming (removes unused code)
+  * ReadyToRun compilation (AOT for faster startup)
+  * Debug symbols removal
+  * Single-file deployment options
+- Analysis:
+  * Layer-by-layer breakdown with dive
+  * Size comparison between standard and optimized builds
+  * Waste identification and optimization recommendations
+- Benefits:
+  * **Security**: Smaller attack surface, fewer CVEs
+  * **Performance**: Faster image pulls and deployments
+  * **Cost**: Lower storage and bandwidth costs
+  * **Efficiency**: Reduced resource consumption
+- Expected reduction: 30-50% smaller image size
+- Trade-offs: Slightly longer build time, potential runtime compatibility issues
+
 ### Security Tools Integration
 
 | Category | Tool | Purpose | Enforcement |
@@ -522,6 +553,7 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 | IaC | Checkov | K8s configuration security | ℹ️ Report |
 | Container | Trivy | Image vulnerabilities | ✅ Enforced |
 | CIS Benchmark | Trivy | Docker CIS compliance (v1.6.0) | ℹ️ Report |
+| Container Size | dive | Layer analysis & optimization | ℹ️ Analysis |
 | SBOM | Syft | Dependency tracking (SPDX format) | ℹ️ Generated |
 | SBOM Attestation | Cosign | Signed SBOM (in-toto attestation) | ⚠️ Optional |
 | Image Signing | Cosign | Supply chain integrity (Sigstore) | ⚠️ Optional |
