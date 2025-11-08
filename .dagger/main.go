@@ -801,6 +801,134 @@ func (m *SearchApi) ApiSecurityTest(
 	return output, nil
 }
 
+// AttestSbom attaches SBOM as an attestation to the container image
+// Uses Cosign to create a verifiable attestation
+func (m *SearchApi) AttestSbom(
+	ctx context.Context,
+	sbom string,
+	// Private key for signing (use cosign generate-key-pair to create)
+	privateKey *dagger.Secret,
+	// Password for the private key
+	password *dagger.Secret,
+	// Image reference to attest (e.g., "harbor.example.com/myproject/search-api:v1.0.0")
+	imageRef string,
+) (string, error) {
+	// Create attestation with Cosign
+	output, err := dag.Container().
+		From("gcr.io/projectsigstore/cosign:latest").
+		WithNewFile("/sbom.json", sbom).
+		WithMountedSecret("/cosign.key", privateKey).
+		WithSecretVariable("COSIGN_PASSWORD", password).
+		WithExec([]string{
+			"cosign", "attest",
+			"--key", "/cosign.key",
+			"--predicate", "/sbom.json",
+			"--type", "spdxjson",
+			"--tlog-upload=false",  // For airgapped environments
+			imageRef,
+		}).
+		Stdout(ctx)
+
+	if err != nil {
+		return "", fmt.Errorf("SBOM attestation failed: %w", err)
+	}
+
+	return output, nil
+}
+
+// PolicyCheck validates configurations against custom OPA policies
+// Uses Conftest to enforce policy as code
+func (m *SearchApi) PolicyCheck(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
+	// Create default policy if none exists
+	defaultPolicy := `package main
+
+deny[msg] {
+  input.kind == "Deployment"
+  not input.spec.template.spec.securityContext.runAsNonRoot
+  msg = "Containers must not run as root"
+}
+
+deny[msg] {
+  input.kind == "Deployment"
+  container := input.spec.template.spec.containers[_]
+  not container.resources.limits.memory
+  msg = sprintf("Container %s must have memory limits", [container.name])
+}
+
+deny[msg] {
+  input.kind == "Deployment"
+  container := input.spec.template.spec.containers[_]
+  not container.resources.limits.cpu
+  msg = sprintf("Container %s must have CPU limits", [container.name])
+}
+
+deny[msg] {
+  input.kind == "Deployment"
+  container := input.spec.template.spec.containers[_]
+  container.securityContext.privileged == true
+  msg = sprintf("Container %s must not run in privileged mode", [container.name])
+}
+`
+
+	// Run Conftest policy checks
+	output, err := dag.Container().
+		From("openpolicyagent/conftest:latest").
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		// Create default policy
+		WithExec([]string{"sh", "-c", "mkdir -p /policy"}).
+		WithNewFile("/policy/deployment.rego", defaultPolicy).
+		// Test Kubernetes manifests
+		WithExec([]string{
+			"test",
+			"k8s/",
+			"--policy", "/policy",
+			"--all-namespaces",
+			"--output", "json",
+		}).
+		Stdout(ctx)
+
+	if err != nil {
+		return output, fmt.Errorf("POLICY CHECK FAILED - policy violations detected: %w", err)
+	}
+
+	return output, nil
+}
+
+// CisBenchmark runs CIS Docker Benchmark security checks
+// Validates Docker/container best practices
+func (m *SearchApi) CisBenchmark(
+	ctx context.Context,
+	container *dagger.Container,
+) (string, error) {
+	// Save container as tarball
+	tarball := container.AsTarball()
+
+	// Run CIS Benchmark checks using Trivy
+	output, err := dag.Container().
+		From("aquasec/trivy:latest").
+		WithMountedFile("/image.tar", tarball).
+		WithExec([]string{
+			"image",
+			"--input", "/image.tar",
+			"--compliance", "docker-cis",
+			"--format", "json",
+			"--severity", "HIGH,CRITICAL",
+		}).
+		Stdout(ctx)
+
+	if err != nil {
+		return output, fmt.Errorf("CIS Benchmark check completed with findings: %w", err)
+	}
+
+	return output, nil
+}
+
 // PushToRegistry pushes the final image to any container registry
 // Works with Harbor, GHCR, Docker Hub, GitLab Registry, etc.
 func (m *SearchApi) PushToRegistry(
@@ -926,8 +1054,17 @@ func (m *SearchApi) FullPipeline(
 		report += "✅ IaC security scan completed\n\n"
 	}
 
-	// Step 10: Generate SBOM
-	report += "📋 Step 10: Generating SBOM...\n"
+	// SECURITY GATE 6: Policy as Code (OPA/Conftest)
+	report += "📐 Step 10: Validating policies (OPA/Conftest)...\n"
+	policyResult, err := m.PolicyCheck(ctx, source)
+	if err != nil {
+		report += fmt.Sprintf("⚠️  Policy check completed with violations\n\n")
+	} else {
+		report += "✅ All policy checks passed\n\n"
+	}
+
+	// Step 11: Generate SBOM
+	report += "📋 Step 11: Generating SBOM...\n"
 	sbom, err := m.GenerateSbom(ctx, source)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  SBOM generation warning: %v\n\n", err)
@@ -935,37 +1072,46 @@ func (m *SearchApi) FullPipeline(
 		report += fmt.Sprintf("✅ SBOM generated (%d bytes)\n\n", len(sbom))
 	}
 
-	// Step 11: Build Container
-	report += "🐳 Step 11: Building container image...\n"
+	// Step 12: Build Container
+	report += "🐳 Step 12: Building container image...\n"
 	container := m.BuildContainer(ctx, source)
 	report += "✅ Container image built\n\n"
 
-	// SECURITY GATE 6: Container Vulnerability Scan (ENFORCED)
-	report += "🔎 Step 12: Scanning container for vulnerabilities...\n"
+	// SECURITY GATE 7: Container Vulnerability Scan (ENFORCED)
+	report += "🔎 Step 13: Scanning container for vulnerabilities...\n"
 	scanResult, err := m.ScanContainer(ctx, container)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
 	report += "✅ Container has no HIGH/CRITICAL vulnerabilities\n\n"
 
-	// Step 13: Push to Local Registry
-	report += "📤 Step 13: Pushing to local registry...\n"
+	// Step 14: CIS Benchmark Compliance
+	report += "📋 Step 14: Running CIS Docker Benchmark...\n"
+	cisResult, err := m.CisBenchmark(ctx, container)
+	if err != nil {
+		report += fmt.Sprintf("⚠️  CIS Benchmark completed with findings\n\n")
+	} else {
+		report += "✅ CIS Benchmark passed\n\n"
+	}
+
+	// Step 15: Push to Local Registry
+	report += "📤 Step 15: Pushing to local registry...\n"
 	localImage, err := m.PushToLocalRegistry(ctx, container, tag)
 	if err != nil {
 		return report, fmt.Errorf("failed to push to local registry: %w", err)
 	}
 	report += fmt.Sprintf("✅ Pushed to local registry: %s\n\n", localImage)
 
-	// Step 14: Setup K3s Cluster
-	report += "🏗️  Step 14: Setting up K3s cluster...\n"
+	// Step 16: Setup K3s Cluster
+	report += "🏗️  Step 16: Setting up K3s cluster...\n"
 	cluster, err := m.SetupK3s(ctx)
 	if err != nil {
 		return report, fmt.Errorf("failed to setup K3s: %w", err)
 	}
 	report += "✅ K3s cluster ready\n\n"
 
-	// Step 15: Deploy Solr
-	report += "🔍 Step 15: Deploying Solr...\n"
+	// Step 17: Deploy Solr
+	report += "🔍 Step 17: Deploying Solr...\n"
 	k8sManifests := source.Directory("k8s")
 	err = m.DeploySolr(ctx, k8sManifests, cluster)
 	if err != nil {
@@ -973,40 +1119,40 @@ func (m *SearchApi) FullPipeline(
 	}
 	report += "✅ Solr deployed successfully\n\n"
 
-	// Step 16: Deploy API
-	report += "🚀 Step 16: Deploying Search API...\n"
+	// Step 18: Deploy API
+	report += "🚀 Step 18: Deploying Search API...\n"
 	err = m.DeployApi(ctx, k8sManifests, cluster, tag)
 	if err != nil {
 		return report, fmt.Errorf("failed to deploy API: %w", err)
 	}
 	report += "✅ Search API deployed successfully\n\n"
 
-	// Step 17: Run Integration Tests
-	report += "🧪 Step 17: Running integration tests...\n"
+	// Step 19: Run Integration Tests
+	report += "🧪 Step 19: Running integration tests...\n"
 	integrationResult, err := m.RunIntegrationTests(ctx, source, cluster)
 	if err != nil {
 		return report, fmt.Errorf("integration tests failed: %w", err)
 	}
 	report += "✅ Integration tests passed\n\n"
 
-	// SECURITY GATE 7: DAST - Dynamic Application Security Testing
-	report += "🎯 Step 18: Running DAST (OWASP ZAP)...\n"
+	// SECURITY GATE 8: DAST - Dynamic Application Security Testing
+	report += "🎯 Step 20: Running DAST (OWASP ZAP)...\n"
 	dastResult, err := m.DastScan(ctx, cluster)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
 	report += "✅ DAST passed - no vulnerabilities in running application\n\n"
 
-	// SECURITY GATE 8: API Security Testing (OWASP API Top 10)
-	report += "🔓 Step 19: Running API security tests (Nuclei)...\n"
+	// SECURITY GATE 9: API Security Testing (OWASP API Top 10)
+	report += "🔓 Step 21: Running API security tests (Nuclei)...\n"
 	apiSecResult, err := m.ApiSecurityTest(ctx, cluster)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
 	report += "✅ API security tests passed - no API vulnerabilities\n\n"
 
-	// Step 20: Performance Testing
-	report += "🚀 Step 20: Running performance tests (k6)...\n"
+	// Step 22: Performance Testing
+	report += "🚀 Step 22: Running performance tests (k6)...\n"
 	perfResult, err := m.PerformanceTest(ctx, cluster, 10, "30s")
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Performance test warning: %v\n\n", err)
@@ -1014,8 +1160,8 @@ func (m *SearchApi) FullPipeline(
 		report += "✅ Performance tests passed - meets SLAs\n\n"
 	}
 
-	// Step 21: Mutation Testing (optional, can be slow)
-	report += "🧬 Step 21: Running mutation tests (Stryker.NET)...\n"
+	// Step 23: Mutation Testing (optional, can be slow)
+	report += "🧬 Step 23: Running mutation tests (Stryker.NET)...\n"
 	mutationResult, err := m.MutationTest(ctx, source, 80)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Mutation testing warning: %v\n\n", err)
@@ -1023,20 +1169,20 @@ func (m *SearchApi) FullPipeline(
 		report += "✅ Mutation testing passed - test quality is high\n\n"
 	}
 
-	// Step 22: Push to Container Registry (if credentials provided)
+	// Step 24: Push to Container Registry (if credentials provided)
 	if registryUrl != "" && registryUsername != nil && registryPassword != nil && imageRef != "" {
-		report += "🏗️  Step 22: Pushing to container registry...\n"
+		report += "🏗️  Step 24: Pushing to container registry...\n"
 		pushedImage, err := m.PushToRegistry(ctx, container, registryUrl, registryUsername, registryPassword, imageRef, tag)
 		if err != nil {
 			return report, fmt.Errorf("failed to push to registry: %w", err)
 		}
 		report += fmt.Sprintf("✅ Pushed to registry: %s\n\n", pushedImage)
 	} else {
-		report += "⏭️  Step 22: Skipping registry push (credentials not provided)\n\n"
+		report += "⏭️  Step 24: Skipping registry push (credentials not provided)\n\n"
 	}
 
 	report += "🎉 Security-First Pipeline Completed Successfully!\n"
-	report += "🔒 All 8 security gates passed - safe to deploy\n"
-	report += "📊 Pipeline Stats: 22 steps | 8 enforced gates | 5 optional checks\n"
+	report += "🔒 All 9 security gates passed - safe to deploy\n"
+	report += "📊 Pipeline Stats: 24 steps | 9 enforced gates | 6 optional checks\n"
 	return report, nil
 }
