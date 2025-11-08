@@ -11,10 +11,10 @@ spec:
         value: "https://github.com/your-org/search-api"
       - name: branch
         value: "main"
-      - name: harbor-url
-        value: "harbor.your-domain.com"
-      - name: harbor-project
-        value: "search-api"
+      - name: registry-url
+        value: "harbor.your-domain.com"  # or ghcr.io, docker.io, registry.gitlab.com, etc.
+      - name: image-ref
+        value: "harbor.your-domain.com/search-api/search-api"  # Full image path without tag
       - name: image-tag
         value: "{{workflow.creationTimestamp.Y}}{{workflow.creationTimestamp.m}}{{workflow.creationTimestamp.d}}-{{workflow.uid}}"
 
@@ -63,10 +63,10 @@ spec:
     - name: run-dagger-pipeline
       inputs:
         parameters:
-          - name: harbor-url
-            value: "{{workflow.parameters.harbor-url}}"
-          - name: harbor-project
-            value: "{{workflow.parameters.harbor-project}}"
+          - name: registry-url
+            value: "{{workflow.parameters.registry-url}}"
+          - name: image-ref
+            value: "{{workflow.parameters.image-ref}}"
           - name: image-tag
             value: "{{workflow.parameters.image-tag}}"
       container:
@@ -76,24 +76,24 @@ spec:
           - |
             cd /work/source
 
-            # Run the full Dagger pipeline
+            # Run the full Dagger pipeline with registry push
             dagger call full-pipeline \
               --source=. \
-              --harbor-url={{inputs.parameters.harbor-url}} \
-              --harbor-username=env:HARBOR_USERNAME \
-              --harbor-password=env:HARBOR_PASSWORD \
-              --harbor-project={{inputs.parameters.harbor-project}} \
+              --registry-url={{inputs.parameters.registry-url}} \
+              --registry-username=env:REGISTRY_USERNAME \
+              --registry-password=env:REGISTRY_PASSWORD \
+              --image-ref={{inputs.parameters.image-ref}} \
               --tag={{inputs.parameters.image-tag}}
         env:
-          - name: HARBOR_USERNAME
+          - name: REGISTRY_USERNAME
             valueFrom:
               secretKeyRef:
-                name: harbor-credentials
+                name: registry-credentials
                 key: username
-          - name: HARBOR_PASSWORD
+          - name: REGISTRY_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: harbor-credentials
+                name: registry-credentials
                 key: password
           - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
             value: "unix:///var/run/buildkit/buildkitd.sock"
@@ -136,28 +136,28 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: harbor-credentials
+  name: registry-credentials
   namespace: argo
 type: Opaque
 stringData:
-  username: "admin"
-  password: "CHANGE_ME"
+  username: "admin"  # Registry username (Harbor, GHCR, Docker Hub, etc.)
+  password: "CHANGE_ME"  # Registry password or personal access token
   # In production, use Infisical or external secrets operator:
   # apiVersion: external-secrets.io/v1beta1
   # kind: ExternalSecret
   # metadata:
-  #   name: harbor-credentials
+  #   name: registry-credentials
   # spec:
   #   refreshInterval: 1h
   #   secretStoreRef:
   #     name: infisical-secret-store
   #     kind: SecretStore
   #   target:
-  #     name: harbor-credentials
+  #     name: registry-credentials
   #   data:
   #     - secretKey: username
   #       remoteRef:
-  #         key: harbor-username
+  #         key: registry-username
   #     - secretKey: password
   #       remoteRef:
-  #         key: harbor-password
+  #         key: registry-password

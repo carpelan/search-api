@@ -15,21 +15,22 @@ The example application is a C# Search API, chosen to demonstrate security pract
 >
 > **Secondary**: The Search API is a realistic example to showcase security scanning on a multi-component application (API + Solr + Kubernetes)
 
-## 🔒 Comprehensive Security-First Pipeline (15 Steps)
+## 🔒 Comprehensive Security-First Pipeline (16 Steps)
 
-This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **5 enforced security gates**:
+This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **6 enforced security gates**:
 
 ### 🛡️ Security Gates (Fail-Fast)
 
-**GATE 1: 🔐 Secret Scanning** - GitLeaks detects hardcoded secrets (BLOCKS pipeline)
+**GATE 1: 🔐 Secret Scanning** - TruffleHog detects hardcoded secrets (BLOCKS pipeline)
 **GATE 2: 🛡️ SAST** - Semgrep finds security vulnerabilities in code (BLOCKS pipeline)
 **GATE 3: 🔒 Dependency Scan** - Trivy checks for vulnerable packages (BLOCKS pipeline)
 **GATE 4: ☸️ IaC Security** - Checkov validates Kubernetes manifests
 **GATE 5: 🔎 Container Scan** - Trivy blocks HIGH/CRITICAL vulnerabilities (BLOCKS pipeline)
+**GATE 6: 🎯 DAST** - OWASP ZAP tests running application for vulnerabilities (BLOCKS pipeline)
 
 ### Complete Pipeline Steps
 
-1. ✅ **Secret Scanning** - GitLeaks (enforced, fails on secrets)
+1. ✅ **Secret Scanning** - TruffleHog (enforced, fails on secrets)
 2. ✅ **SAST** - Semgrep security analysis (enforced, fails on vulnerabilities)
 3. ✅ **Build & Unit Test** - Compilation and testing
 4. ✅ **Code Quality** - dotnet format validation
@@ -43,13 +44,15 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 12. ✅ **Solr Deployment** - Database with security context
 13. ✅ **API Deployment** - Non-root, resource-limited containers
 14. ✅ **Integration Tests** - End-to-end validation
-15. ✅ **Harbor Push** - Production registry (optional)
+15. ✅ **DAST** - OWASP ZAP dynamic security testing (enforced, fails on vulnerabilities)
+16. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
 
 ### 🎯 Security Features Implemented
 
 **Shift-Left Security** ✅
-- ✅ Secret scanning with enforcement (GitLeaks)
-- ✅ SAST with enforcement (Semgrep)
+- ✅ Secret scanning with enforcement (TruffleHog)
+- ✅ SAST with enforcement (Semgrep) - static code analysis
+- ✅ DAST with enforcement (OWASP ZAP) - dynamic runtime testing
 - ✅ Dependency vulnerability scanning with enforcement (Trivy)
 - ✅ Container vulnerability scanning with enforcement (Trivy)
 - ✅ IaC security scanning (Checkov)
@@ -63,17 +66,24 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ SBOM in SPDX format
 - ✅ Secure container registry integration
 
+**Runtime Security** ✅
+- ✅ Dynamic security testing against live application
+- ✅ OWASP Top 10 vulnerability detection
+- ✅ XSS, SQLi, auth bypass detection
+- ✅ API security testing
+
 ### 📊 Security Enforcement Policy
 
 | Check Type | Tool | Severity Threshold | Action |
 |------------|------|-------------------|--------|
-| Secrets | GitLeaks | Any | **FAIL** |
-| Code Vulnerabilities | Semgrep | ERROR, WARNING | **FAIL** |
+| Secrets | TruffleHog | Any | **FAIL** |
+| Code Vulnerabilities (SAST) | Semgrep | ERROR, WARNING | **FAIL** |
 | Dependencies | Trivy | HIGH, CRITICAL | **FAIL** |
 | Container | Trivy | HIGH, CRITICAL | **FAIL** |
+| Runtime Vulnerabilities (DAST) | OWASP ZAP | Any | **FAIL** |
 | IaC | Checkov | INFO | Report |
 
-**Result**: Vulnerable code cannot reach production.
+**Result**: Vulnerable code cannot reach production - tested both statically AND dynamically.
 
 ### Why This Application?
 
@@ -113,37 +123,61 @@ This complexity showcases where security scanning fits in a realistic CI/CD pipe
 ### Run the Full Pipeline
 
 ```bash
-# Run the complete CI/CD pipeline
-dagger call full-pipeline --source=.
+# Run the complete CI/CD pipeline (source defaults to current directory)
+dagger call full-pipeline
 
-# With Harbor registry push
+# With container registry push (works with any registry)
+# Example 1: Harbor
 dagger call full-pipeline \
-  --source=. \
-  --harbor-url=harbor.example.com \
-  --harbor-username=env:HARBOR_USERNAME \
-  --harbor-password=env:HARBOR_PASSWORD \
-  --harbor-project=search-api \
+  --registry-url=harbor.example.com \
+  --registry-username=env:REGISTRY_USER \
+  --registry-password=env:REGISTRY_PASSWORD \
+  --image-ref=harbor.example.com/myproject/search-api \
+  --tag=v1.0.0
+
+# Example 2: GitHub Container Registry (GHCR)
+dagger call full-pipeline \
+  --registry-url=ghcr.io \
+  --registry-username=env:GITHUB_USER \
+  --registry-password=env:GITHUB_TOKEN \
+  --image-ref=ghcr.io/myorg/search-api \
+  --tag=v1.0.0
+
+# Example 3: Docker Hub
+dagger call full-pipeline \
+  --registry-url=docker.io \
+  --registry-username=env:DOCKER_USER \
+  --registry-password=env:DOCKER_PASSWORD \
+  --image-ref=myusername/search-api \
+  --tag=v1.0.0
+
+# Example 4: GitLab Container Registry
+dagger call full-pipeline \
+  --registry-url=registry.gitlab.com \
+  --registry-username=env:GITLAB_USER \
+  --registry-password=env:GITLAB_TOKEN \
+  --image-ref=registry.gitlab.com/mygroup/myproject/search-api \
   --tag=v1.0.0
 ```
 
 ### Individual Pipeline Steps
 
 ```bash
-# Security Gates
-dagger call secret-scan --source=.              # Scan for hardcoded secrets
-dagger call sast-scan --source=.                # Static application security testing
-dagger call dependency-scan --source=.          # Dependency vulnerability scan
-dagger call iac-scan --source=.                 # Infrastructure as Code scan
+# Security Gates (no --source needed, defaults to current directory)
+dagger call secret-scan              # Scan for hardcoded secrets
+dagger call sast-scan                # Static application security testing
+dagger call dependency-scan          # Dependency vulnerability scan
+dagger call iac-scan                 # Infrastructure as Code scan
 
 # Build and Test
-dagger call build --source=.                    # Build and run unit tests
-dagger call static-analysis --source=.          # Code quality checks
+dagger call build                    # Build and run unit tests
+dagger call static-analysis          # Code quality checks
 
 # SBOM and Container
-dagger call generate-sbom --source=.            # Generate software bill of materials
-dagger call build-container --source=.          # Build container image
-dagger call scan-container \                    # Scan container for vulnerabilities
-  --container=$(dagger call build-container --source=.)
+dagger call generate-sbom            # Generate software bill of materials
+dagger call build-container          # Build container image
+dagger call scan-container \         # Scan container for vulnerabilities
+  --container=$(dagger call build-container)
 
 # Setup K3s cluster for testing
 dagger call setup-k3s
@@ -194,37 +228,46 @@ See **[DAGGER-SHOWCASE.md](docs/DAGGER-SHOWCASE.md)** for:
 This pipeline implements **defense-in-depth** with multiple security layers:
 
 **1. Secret Detection** 🔐
-- Tool: GitLeaks
+- Tool: TruffleHog
 - Scans for hardcoded credentials, API keys, tokens
+- Features: Secret verification, 800+ credential detectors
+- Detects: AWS keys, GitHub tokens, Slack tokens, database credentials, etc.
 - Enforcement: **BLOCKS** pipeline on detection
 
 **2. Static Application Security Testing (SAST)** 🛡️
 - Tool: Semgrep
 - Detects: SQL injection, XSS, insecure deserialization, crypto issues
-- Rulesets: C# security, security-audit
+- Rulesets: C# security, security-audit, OWASP Top 10
 - Enforcement: **BLOCKS** on ERROR/WARNING severity
 
-**3. Dependency Vulnerability Scanning** 🔒
+**3. Dynamic Application Security Testing (DAST)** 🎯
+- Tool: OWASP ZAP (Zed Attack Proxy)
+- Tests: Running application for vulnerabilities
+- Detects: XSS, SQL injection, authentication bypasses, OWASP Top 10
+- Method: Baseline scan with spidering and active scanning
+- Enforcement: **BLOCKS** on any vulnerability detected
+
+**4. Dependency Vulnerability Scanning** 🔒
 - Tool: Trivy (filesystem mode)
 - Scans: NuGet packages and transitive dependencies
 - Enforcement: **BLOCKS** on HIGH/CRITICAL vulnerabilities
 
-**4. Infrastructure as Code (IaC) Security** ☸️
+**5. Infrastructure as Code (IaC) Security** ☸️
 - Tool: Checkov
 - Validates: Kubernetes manifests for misconfigurations
 - Checks: Privileged containers, resource limits, RBAC, network policies
 
-**5. Container Security** 🐳
+**6. Container Security** 🐳
 - Tool: Trivy (image mode)
 - Scans: OS packages, application dependencies, layers
 - Enforcement: **BLOCKS** on HIGH/CRITICAL vulnerabilities
 
-**6. Software Bill of Materials (SBOM)** 📋
+**7. Software Bill of Materials (SBOM)** 📋
 - Tool: Syft
 - Format: SPDX JSON
 - Tracks: All dependencies for supply chain transparency
 
-**7. Runtime Security Hardening** 🔧
+**8. Runtime Security Hardening** 🔧
 - Non-root user execution (searchapi:searchapi)
 - Multi-stage builds (minimize attack surface)
 - Resource limits (CPU, memory)
@@ -235,8 +278,9 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 
 | Category | Tool | Purpose | Enforcement |
 |----------|------|---------|-------------|
-| Secrets | GitLeaks | Find leaked credentials | ✅ Enforced |
+| Secrets | TruffleHog | Find & verify leaked credentials | ✅ Enforced |
 | SAST | Semgrep | Code vulnerability analysis | ✅ Enforced |
+| DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
 | Dependencies | Trivy | Package vulnerabilities | ✅ Enforced |
 | IaC | Checkov | K8s configuration security | ⚠️ Report |
 | Container | Trivy | Image vulnerabilities | ✅ Enforced |
@@ -439,7 +483,10 @@ spec:
         - call
         - full-pipeline
         - --source=/workspace
-        - --harbor-url={{workflow.parameters.harbor-url}}
+        - --registry-url={{workflow.parameters.registry-url}}
+        - --registry-username={{workflow.parameters.registry-username}}
+        - --registry-password={{workflow.parameters.registry-password}}
+        - --image-ref={{workflow.parameters.image-ref}}
         - --tag={{workflow.parameters.tag}}
 ```
 

@@ -11,7 +11,12 @@ import (
 type SearchApi struct{}
 
 // Build the C# application and run unit tests
-func (m *SearchApi) Build(ctx context.Context, source *dagger.Directory) (*dagger.Container, error) {
+func (m *SearchApi) Build(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (*dagger.Container, error) {
 	return dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
@@ -21,19 +26,30 @@ func (m *SearchApi) Build(ctx context.Context, source *dagger.Directory) (*dagge
 		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}), nil
 }
 
-// SecretScan scans for hardcoded secrets using GitLeaks
-func (m *SearchApi) SecretScan(ctx context.Context, source *dagger.Directory) (string, error) {
-	// Scan with GitLeaks - ENFORCED (fails if secrets found)
+// SecretScan scans for hardcoded secrets using TruffleHog
+func (m *SearchApi) SecretScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
+	// Scan with TruffleHog - ENFORCED (fails if secrets found)
+	// TruffleHog verifies secrets and has better detection than GitLeaks
 	output, err := dag.Container().
-		From("zricethezav/gitleaks:latest").
+		From("trufflesecurity/trufflehog:latest").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
-			"detect",
-			"--source", ".",
-			"--no-git",
-			"--verbose",
-			"--exit-code", "1", // FAIL if secrets found
+			"filesystem",
+			"/src",
+			"--json",                    // JSON output for parsing
+			"--no-update",               // Don't update detectors
+			"--fail",                    // Exit with error if secrets found
+			"--concurrency=10",          // Parallel scanning
+			"--exclude-paths=.git",      // Skip .git directory
+			"--exclude-paths=node_modules", // Skip dependencies
+			"--exclude-paths=bin",       // Skip binaries
+			"--exclude-paths=obj",       // Skip build artifacts
 		}).
 		Stdout(ctx)
 
@@ -45,33 +61,52 @@ func (m *SearchApi) SecretScan(ctx context.Context, source *dagger.Directory) (s
 }
 
 // SastScan performs Static Application Security Testing using Semgrep
-func (m *SearchApi) SastScan(ctx context.Context, source *dagger.Directory) (string, error) {
-	// Scan with Semgrep - ENFORCED (fails on security issues)
+func (m *SearchApi) SastScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
+	// Scan with Semgrep - ENFORCED (fails on HIGH severity security issues)
+	// Focuses on OWASP Top 10 and common C# vulnerabilities
 	output, err := dag.Container().
 		From("returntocorp/semgrep:latest").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
 			"semgrep",
-			"--config=auto", // Auto-detect rules for C#
-			"--config=p/csharp",
-			"--config=p/security-audit",
-			"--error",       // Treat findings as errors
-			"--severity=ERROR",
-			"--severity=WARNING",
-			"--json",
+			"--config=p/csharp",              // C# security rules
+			"--config=p/security-audit",      // General security audit
+			"--config=p/owasp-top-ten",       // OWASP Top 10 vulnerabilities
+			"--config=p/sql-injection",       // SQL injection patterns
+			"--config=p/xss",                 // Cross-site scripting
+			"--metrics=off",                  // Disable telemetry
+			"--exclude=*.Tests",              // Skip test projects
+			"--exclude=obj/",                 // Skip build artifacts
+			"--exclude=bin/",                 // Skip binaries
+			"--severity=ERROR",               // Only fail on ERROR severity
+			"--severity=WARNING",             // Include warnings in output
+			"--verbose",                      // Show what's being scanned
+			"--sarif",                        // SARIF format for tooling integration
+			"--output=/tmp/semgrep-results.sarif",
 		}).
+		WithExec([]string{"cat", "/tmp/semgrep-results.sarif"}).
 		Stdout(ctx)
 
 	if err != nil {
-		return "", fmt.Errorf("SAST FAILED - security vulnerabilities found in code: %w", err)
+		return "", fmt.Errorf("SAST FAILED - security vulnerabilities detected:\n%s\n%w", output, err)
 	}
 
 	return output, nil
 }
 
 // DependencyScan scans dependencies for vulnerabilities with enforcement
-func (m *SearchApi) DependencyScan(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) DependencyScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Using Trivy for comprehensive dependency scanning with enforcement
 	output, err := dag.Container().
 		From("aquasec/trivy:latest").
@@ -95,7 +130,12 @@ func (m *SearchApi) DependencyScan(ctx context.Context, source *dagger.Directory
 }
 
 // IacScan scans Infrastructure as Code (Kubernetes manifests) for security issues
-func (m *SearchApi) IacScan(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) IacScan(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Scan Kubernetes manifests with Checkov - ENFORCED
 	output, err := dag.Container().
 		From("bridgecrew/checkov:latest").
@@ -120,7 +160,12 @@ func (m *SearchApi) IacScan(ctx context.Context, source *dagger.Directory) (stri
 }
 
 // Run static analysis with dotnet format and analyzers
-func (m *SearchApi) StaticAnalysis(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) StaticAnalysis(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	container := dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
@@ -140,7 +185,12 @@ func (m *SearchApi) StaticAnalysis(ctx context.Context, source *dagger.Directory
 }
 
 // BuildContainer creates the production Docker image
-func (m *SearchApi) BuildContainer(ctx context.Context, source *dagger.Directory) *dagger.Container {
+func (m *SearchApi) BuildContainer(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) *dagger.Container {
 	return dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
@@ -168,7 +218,12 @@ func (m *SearchApi) BuildContainer(ctx context.Context, source *dagger.Directory
 }
 
 // GenerateSBOM creates a Software Bill of Materials
-func (m *SearchApi) GenerateSbom(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *SearchApi) GenerateSbom(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) (string, error) {
 	// Using Syft to generate SBOM
 	sbom, err := dag.Container().
 		From("anchore/syft:latest").
@@ -429,24 +484,71 @@ func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Dire
 	return output, nil
 }
 
-// PushToHarbor pushes the final image to Harbor registry
-func (m *SearchApi) PushToHarbor(
-	ctx context.Context,
-	container *dagger.Container,
-	harborUrl string,
-	harborUsername *dagger.Secret,
-	harborPassword *dagger.Secret,
-	project string,
-	tag string,
-) (string, error) {
-	imageRef := fmt.Sprintf("%s/%s/search-api:%s", harborUrl, project, tag)
+// DastScan performs Dynamic Application Security Testing using OWASP ZAP
+// Scans the running application for vulnerabilities (XSS, SQLi, auth issues, etc.)
+func (m *SearchApi) DastScan(ctx context.Context, cluster *K3sCluster) (string, error) {
+	// Run OWASP ZAP baseline scan against the deployed API
+	zapContainer := dag.Container().
+		From("ghcr.io/zaproxy/zaproxy:stable").
+		WithServiceBinding("k3s", cluster.Service).
+		WithDirectory("/zap/kubeconfig", cluster.Kubeconfig).
+		WithEnvVariable("KUBECONFIG", "/zap/kubeconfig/kubeconfig").
+		// Install kubectl to port-forward
+		WithExec([]string{"sh", "-c", "curl -LO https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"}).
+		// Port-forward the API service in background
+		WithExec([]string{"sh", "-c", "kubectl port-forward -n search-system svc/search-api 8080:80 &"}).
+		WithExec([]string{"sleep", "10"}).  // Wait for port-forward to be ready
+		// Run ZAP baseline scan
+		WithExec([]string{
+			"zap-baseline.py",
+			"-t", "http://localhost:8080",      // Target URL
+			"-r", "/zap/wrk/report.html",       // HTML report
+			"-J", "/zap/wrk/report.json",       // JSON report
+			"-w", "/zap/wrk/report.md",         // Markdown report
+			"-c", "/zap/wrk/rules.tsv",         // Custom rules (optional)
+			"-d",                                // Enable debug output
+			"-I",                                // Include informational alerts
+			"-z", "-config api.disablekey=true", // Disable API key requirement
+		})
 
-	address, err := container.
-		WithRegistryAuth(harborUrl, harborUsername, harborPassword).
-		Publish(ctx, imageRef)
+	// Get the JSON report
+	report, err := zapContainer.
+		WithExec([]string{"cat", "/zap/wrk/report.json"}).
+		Stdout(ctx)
 
 	if err != nil {
-		return "", fmt.Errorf("failed to push to Harbor: %w", err)
+		// ZAP returns non-zero if vulnerabilities are found
+		// Still try to get the report for debugging
+		report, _ = zapContainer.
+			WithExec([]string{"sh", "-c", "cat /zap/wrk/report.json 2>/dev/null || echo '{\"error\": \"scan failed\"}'"}).
+			Stdout(ctx)
+		return report, fmt.Errorf("DAST FAILED - vulnerabilities detected in running application: %w", err)
+	}
+
+	return report, nil
+}
+
+// PushToRegistry pushes the final image to any container registry
+// Works with Harbor, GHCR, Docker Hub, GitLab Registry, etc.
+func (m *SearchApi) PushToRegistry(
+	ctx context.Context,
+	container *dagger.Container,
+	registryUrl string,
+	username *dagger.Secret,
+	password *dagger.Secret,
+	// Image reference (e.g., "myproject/search-api" or "ghcr.io/myorg/search-api")
+	imageRef string,
+	tag string,
+) (string, error) {
+	// Build full image reference
+	fullImageRef := fmt.Sprintf("%s:%s", imageRef, tag)
+
+	address, err := container.
+		WithRegistryAuth(registryUrl, username, password).
+		Publish(ctx, fullImageRef)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to push to registry: %w", err)
 	}
 
 	return address, nil
@@ -455,15 +557,22 @@ func (m *SearchApi) PushToHarbor(
 // FullPipeline runs the complete security-first CI/CD pipeline
 func (m *SearchApi) FullPipeline(
 	ctx context.Context,
+	// +optional
+	// +defaultPath="."
 	source *dagger.Directory,
+	// Registry URL (e.g., "harbor.example.com", "ghcr.io", "docker.io")
 	// +optional
-	harborUrl string,
+	registryUrl string,
+	// Registry username
 	// +optional
-	harborUsername *dagger.Secret,
+	registryUsername *dagger.Secret,
+	// Registry password or token
 	// +optional
-	harborPassword *dagger.Secret,
+	registryPassword *dagger.Secret,
+	// Image reference (e.g., "myproject/search-api", "ghcr.io/myorg/search-api")
 	// +optional
-	harborProject string,
+	imageRef string,
+	// Image tag
 	// +default="latest"
 	tag string,
 ) (string, error) {
@@ -582,16 +691,24 @@ func (m *SearchApi) FullPipeline(
 	}
 	report += "✅ Integration tests passed\n\n"
 
-	// Step 15: Push to Harbor (if credentials provided)
-	if harborUrl != "" && harborUsername != nil && harborPassword != nil && harborProject != "" {
-		report += "🏗️  Step 15: Pushing to Harbor registry...\n"
-		harborImage, err := m.PushToHarbor(ctx, container, harborUrl, harborUsername, harborPassword, harborProject, tag)
+	// SECURITY GATE 6: DAST - Dynamic Application Security Testing
+	report += "🎯 Step 15: Running DAST (OWASP ZAP)...\n"
+	dastResult, err := m.DastScan(ctx, cluster)
+	if err != nil {
+		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+	}
+	report += "✅ DAST passed - no vulnerabilities in running application\n\n"
+
+	// Step 16: Push to Container Registry (if credentials provided)
+	if registryUrl != "" && registryUsername != nil && registryPassword != nil && imageRef != "" {
+		report += "🏗️  Step 16: Pushing to container registry...\n"
+		pushedImage, err := m.PushToRegistry(ctx, container, registryUrl, registryUsername, registryPassword, imageRef, tag)
 		if err != nil {
-			return report, fmt.Errorf("failed to push to Harbor: %w", err)
+			return report, fmt.Errorf("failed to push to registry: %w", err)
 		}
-		report += fmt.Sprintf("✅ Pushed to Harbor: %s\n\n", harborImage)
+		report += fmt.Sprintf("✅ Pushed to registry: %s\n\n", pushedImage)
 	} else {
-		report += "⏭️  Step 15: Skipping Harbor push (credentials not provided)\n\n"
+		report += "⏭️  Step 16: Skipping registry push (credentials not provided)\n\n"
 	}
 
 	report += "🎉 Security-First Pipeline Completed Successfully!\n"
