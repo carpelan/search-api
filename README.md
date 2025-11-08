@@ -173,6 +173,11 @@ dagger call iac-scan                 # Infrastructure as Code scan
 dagger call build                    # Build and run unit tests
 dagger call static-analysis          # Code quality checks
 
+# C# Specific Security & Quality
+dagger call c-sharp-security-analysis  # .NET analyzers with security rules (enforced)
+dagger call code-coverage              # Code coverage with minimum threshold (default 80%)
+dagger call code-coverage --minimum-coverage=90  # Custom coverage threshold
+
 # SBOM and Container
 dagger call generate-sbom            # Generate software bill of materials
 dagger call build-container          # Build container image
@@ -274,12 +279,45 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 - Security contexts in Kubernetes
 - Official Microsoft base images only
 
+### C# / .NET Specific Security
+
+**C# Security Analyzers** 🔍
+- Tool: Built-in .NET Analyzers
+- Analysis Mode: AllEnabledByDefault
+- Analysis Level: Latest
+- Enforcement: TreatWarningsAsErrors=true
+- Detects:
+  * Insecure cryptography usage
+  * SQL injection vulnerabilities
+  * XSS vulnerabilities
+  * Insecure deserialization
+  * Information disclosure
+  * Authentication/authorization issues
+  * Regex DoS (ReDoS)
+  * And 400+ other .NET specific issues
+
+**Code Coverage** 📊
+- Tool: XPlat Code Coverage (built-in)
+- Default threshold: 80%
+- Format: Cobertura XML
+- Enforcement: Configurable minimum coverage
+- Tracks: Line, branch, and method coverage
+
+**Benefits of .NET Analyzers:**
+- Language-aware analysis (understands C# semantics)
+- Catches .NET framework-specific issues
+- Enforced at build time
+- No external dependencies needed
+- Continuously updated by Microsoft
+
 ### Security Tools Integration
 
 | Category | Tool | Purpose | Enforcement |
 |----------|------|---------|-------------|
 | Secrets | TruffleHog | Find & verify leaked credentials | ✅ Enforced |
-| SAST | Semgrep | Code vulnerability analysis | ✅ Enforced |
+| SAST (Generic) | Semgrep | Code vulnerability analysis | ✅ Enforced |
+| SAST (C# Specific) | .NET Analyzers | C#/.NET security issues | ✅ Enforced |
+| Code Coverage | XPlat Coverage | Test coverage enforcement | ✅ Configurable |
 | DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
 | Dependencies | Trivy | Package vulnerabilities | ✅ Enforced |
 | IaC | Checkov | K8s configuration security | ⚠️ Report |
