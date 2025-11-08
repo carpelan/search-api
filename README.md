@@ -1,37 +1,62 @@
-# Dagger CI/CD Pipeline Demonstration
+# Dagger CI/CD Pipeline - Security-First Demonstration
 
-**A comprehensive showcase of modern CI/CD practices using Dagger**
+**Showcasing shift-left security practices with Dagger**
 
-This repository demonstrates how to build a complete, security-first CI/CD pipeline using [Dagger](https://dagger.io) with a real-world C# application. The example application is a Search API for Riksarkivet metadata, but the **primary focus is demonstrating Dagger's capabilities** for building reproducible, containerized CI/CD workflows.
+This repository demonstrates how to build a **security-first CI/CD pipeline** using [Dagger](https://dagger.io). The focus is on integrating comprehensive security scanning and enforcement into every stage of the pipeline using Dagger's programmable approach.
 
-> **Note**: This is a proof-of-concept demonstrating CI/CD patterns with Dagger. The Search API serves as a realistic example application to showcase the pipeline, not as a production search solution.
+The example application is a C# Search API, chosen to demonstrate security practices across:
+- Dependency vulnerability scanning
+- Container security
+- Infrastructure-as-Code validation
+- SBOM generation
+- Policy enforcement
 
-## 🌟 What This Demonstrates
+> **Primary Focus**: Security automation in CI/CD using Dagger
+>
+> **Secondary**: The Search API is a realistic example to showcase security scanning on a multi-component application (API + Solr + Kubernetes)
 
-### Dagger CI/CD Pipeline Features (Primary Focus)
+## 🔒 Security-First Pipeline (12 Steps)
 
-This project showcases a **12-step CI/CD pipeline** built entirely with Dagger:
-1. ✅ **Automated Build & Test** - .NET 8.0 compilation and unit tests
-2. ✅ **Static Code Analysis** - Code formatting and quality checks with dotnet format
-3. ✅ **Security Dependency Scanning** - Vulnerable package detection
-4. ✅ **SBOM Generation** - Software Bill of Materials using Syft
-5. ✅ **Multi-Stage Container Build** - Optimized Docker images
-6. ✅ **Container Security Scanning** - Trivy vulnerability analysis
-7. ✅ **Local Registry Push** - Testing registry workflow
-8. ✅ **K3s Cluster Provisioning** - Ephemeral Kubernetes cluster in Dagger
-9. ✅ **Service Deployment** - Automated Solr deployment to K3s
-10. ✅ **Application Deployment** - API deployment with health checks
-11. ✅ **Integration Testing** - End-to-end tests in live cluster
-12. ✅ **Production Registry Push** - Multi-registry support (Harbor, GHCR, Docker Hub)
+This demonstrates a **security-focused CI/CD pipeline** with Dagger:
 
-### Example Application (Search API)
+### Security Stages
+1. ✅ **Build & Unit Test** - Compilation with security in mind
+2. ⚠️ **Static Code Analysis** - Code formatting (NOT full SAST - see gaps below)
+3. ⚠️ **Dependency Vulnerability Scan** - NuGet packages (no enforcement - see gaps)
+4. ✅ **SBOM Generation** - Complete software bill of materials (Syft)
+5. ✅ **Container Build** - Multi-stage, non-root user
+6. ⚠️ **Container Security Scan** - Trivy (currently doesn't fail build - see gaps)
+7. ✅ **Local Registry Push** - Secure image distribution
+8. ✅ **K3s Cluster** - Ephemeral test environment
+9. ✅ **Service Deployment** - Solr with security context
+10. ✅ **API Deployment** - Non-root, resource-limited containers
+11. ✅ **Integration Testing** - Security validation
+12. ✅ **Registry Push** - Multi-registry support (Harbor, GHCR)
 
-The pipeline demonstrates these practices on a real C# application:
-- **RESTful API** with Swagger/OpenAPI
-- **Solr Integration** for full-text search
-- **OAI-PMH Integration** for metadata harvesting (Riksarkivet)
-- **Security-hardened containers** (non-root, minimal attack surface)
-- **Structured logging** with Serilog
+### 🚨 Known Security Gaps (Intentional for demonstration)
+
+This POC demonstrates basic security scanning but has **intentional gaps** to show what a production pipeline needs:
+
+- ❌ **No secret scanning** (GitLeaks, TruffleHog)
+- ❌ **No real SAST** (current static analysis is just code formatting)
+- ❌ **No policy enforcement** (scans run but don't fail builds)
+- ❌ **No IaC scanning** (Kubernetes manifests not checked)
+- ❌ **No image signing** (Cosign, Sigstore)
+- ❌ **No license compliance**
+
+**See [SECURITY-CI-ANALYSIS.md](docs/SECURITY-CI-ANALYSIS.md)** for comprehensive analysis and recommended improvements.
+
+### Why This Application?
+
+The C# Search API was chosen to demonstrate security across multiple attack surfaces:
+- **Application code** - .NET vulnerabilities (XSS, injection, etc.)
+- **Dependencies** - Third-party package vulnerabilities
+- **Container images** - OS and runtime vulnerabilities
+- **Infrastructure** - Kubernetes misconfigurations
+- **External integrations** - OAI-PMH, Solr connections
+- **Secrets management** - Database credentials, API keys
+
+This complexity showcases where security scanning fits in a realistic CI/CD pipeline.
 
 ## 🏗️ Architecture
 
