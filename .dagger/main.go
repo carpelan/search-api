@@ -110,7 +110,7 @@ func (m *SearchApi) ScanContainer(ctx context.Context, container *dagger.Contain
 	// Save container as tarball
 	tarball := container.AsTarball()
 
-	// Scan with Trivy
+	// Scan with Trivy - ENFORCED (fails on HIGH/CRITICAL vulnerabilities)
 	scanResult, err := dag.Container().
 		From("aquasec/trivy:latest").
 		WithMountedFile("/image.tar", tarball).
@@ -119,12 +119,12 @@ func (m *SearchApi) ScanContainer(ctx context.Context, container *dagger.Contain
 			"--input", "/image.tar",
 			"--severity", "HIGH,CRITICAL",
 			"--format", "json",
-			"--exit-code", "0", // Don't fail on vulnerabilities, just report
+			"--exit-code", "1", // FAIL build on vulnerabilities!
 		}).
 		Stdout(ctx)
 
 	if err != nil {
-		return "", fmt.Errorf("container scan failed: %w", err)
+		return "", fmt.Errorf("container scan FAILED - vulnerabilities found: %w", err)
 	}
 
 	return scanResult, nil

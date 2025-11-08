@@ -30,21 +30,37 @@ data:
       echo "Core 'metadata' already exists"
     fi
 
-    # Configure schema
-    echo "Configuring schema..."
+    # Configure schema for Riksarkivet metadata
+    echo "Configuring schema for Riksarkivet archive documents..."
 
-    # Add fields for metadata
+    # Add fields for Riksarkivet archive metadata
     curl -X POST -H 'Content-type:application/json' --data-binary '{
       "add-field": [
+        {"name":"reference_code", "type":"string", "stored":true, "indexed":true},
         {"name":"title", "type":"text_general", "stored":true, "indexed":true},
         {"name":"description", "type":"text_general", "stored":true, "indexed":true},
-        {"name":"author", "type":"string", "stored":true, "indexed":true},
-        {"name":"created_date", "type":"pdate", "stored":true, "indexed":true},
+        {"name":"institution", "type":"string", "stored":true, "indexed":true},
+        {"name":"institution_location", "type":"string", "stored":true, "indexed":true},
+        {"name":"collection_name", "type":"text_general", "stored":true, "indexed":true},
+        {"name":"date_start", "type":"pdate", "stored":true, "indexed":true},
+        {"name":"date_end", "type":"pdate", "stored":true, "indexed":true},
+        {"name":"date_display", "type":"string", "stored":true, "indexed":false},
+        {"name":"page_numbers", "type":"pints", "stored":true, "indexed":true, "multiValued":true},
+        {"name":"total_pages", "type":"pint", "stored":true, "indexed":true},
+        {"name":"full_text", "type":"text_general", "stored":true, "indexed":true},
+        {"name":"text_snippets", "type":"text_general", "stored":true, "indexed":false, "multiValued":true},
+        {"name":"iiif_manifest_url", "type":"string", "stored":true, "indexed":false},
+        {"name":"iiif_image_url", "type":"string", "stored":true, "indexed":false},
+        {"name":"alto_xml_url", "type":"string", "stored":true, "indexed":false},
+        {"name":"viewer_url", "type":"string", "stored":true, "indexed":false},
+        {"name":"document_type", "type":"string", "stored":true, "indexed":true},
+        {"name":"subjects", "type":"strings", "stored":true, "indexed":true, "multiValued":true},
+        {"name":"language", "type":"string", "stored":true, "indexed":true},
+        {"name":"access_conditions", "type":"string", "stored":true, "indexed":true},
+        {"name":"rights", "type":"string", "stored":true, "indexed":true},
+        {"name":"indexed_date", "type":"pdate", "stored":true, "indexed":true},
         {"name":"modified_date", "type":"pdate", "stored":true, "indexed":true},
-        {"name":"tags", "type":"strings", "stored":true, "indexed":true, "multiValued":true},
-        {"name":"content_type", "type":"string", "stored":true, "indexed":true},
-        {"name":"file_size", "type":"plong", "stored":true, "indexed":true},
-        {"name":"full_text", "type":"text_general", "stored":true, "indexed":true}
+        {"name":"source_api", "type":"string", "stored":true, "indexed":true}
       ]
     }' http://localhost:8983/solr/metadata/schema || true
 
