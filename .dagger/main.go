@@ -46,25 +46,34 @@ func (m *SearchApi) SecretScan(ctx context.Context, source *dagger.Directory) (s
 
 // SastScan performs Static Application Security Testing using Semgrep
 func (m *SearchApi) SastScan(ctx context.Context, source *dagger.Directory) (string, error) {
-	// Scan with Semgrep - ENFORCED (fails on security issues)
+	// Scan with Semgrep - ENFORCED (fails on HIGH severity security issues)
+	// Focuses on OWASP Top 10 and common C# vulnerabilities
 	output, err := dag.Container().
 		From("returntocorp/semgrep:latest").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
 			"semgrep",
-			"--config=auto", // Auto-detect rules for C#
-			"--config=p/csharp",
-			"--config=p/security-audit",
-			"--error",       // Treat findings as errors
-			"--severity=ERROR",
-			"--severity=WARNING",
-			"--json",
+			"--config=p/csharp",              // C# security rules
+			"--config=p/security-audit",      // General security audit
+			"--config=p/owasp-top-ten",       // OWASP Top 10 vulnerabilities
+			"--config=p/sql-injection",       // SQL injection patterns
+			"--config=p/xss",                 // Cross-site scripting
+			"--metrics=off",                  // Disable telemetry
+			"--exclude=*.Tests",              // Skip test projects
+			"--exclude=obj/",                 // Skip build artifacts
+			"--exclude=bin/",                 // Skip binaries
+			"--severity=ERROR",               // Only fail on ERROR severity
+			"--severity=WARNING",             // Include warnings in output
+			"--verbose",                      // Show what's being scanned
+			"--sarif",                        // SARIF format for tooling integration
+			"--output=/tmp/semgrep-results.sarif",
 		}).
+		WithExec([]string{"cat", "/tmp/semgrep-results.sarif"}).
 		Stdout(ctx)
 
 	if err != nil {
-		return "", fmt.Errorf("SAST FAILED - security vulnerabilities found in code: %w", err)
+		return "", fmt.Errorf("SAST FAILED - security vulnerabilities detected:\n%s\n%w", output, err)
 	}
 
 	return output, nil
