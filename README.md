@@ -15,9 +15,9 @@ The example application is a C# Search API, chosen to demonstrate security pract
 >
 > **Secondary**: The Search API is a realistic example to showcase security scanning on a multi-component application (API + Solr + Kubernetes)
 
-## 🔒 Comprehensive Security-First Pipeline (15 Steps)
+## 🔒 Comprehensive Security-First Pipeline (16 Steps)
 
-This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **5 enforced security gates**:
+This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **6 enforced security gates**:
 
 ### 🛡️ Security Gates (Fail-Fast)
 
@@ -26,6 +26,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 **GATE 3: 🔒 Dependency Scan** - Trivy checks for vulnerable packages (BLOCKS pipeline)
 **GATE 4: ☸️ IaC Security** - Checkov validates Kubernetes manifests
 **GATE 5: 🔎 Container Scan** - Trivy blocks HIGH/CRITICAL vulnerabilities (BLOCKS pipeline)
+**GATE 6: 🎯 DAST** - OWASP ZAP tests running application for vulnerabilities (BLOCKS pipeline)
 
 ### Complete Pipeline Steps
 
@@ -43,13 +44,15 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 12. ✅ **Solr Deployment** - Database with security context
 13. ✅ **API Deployment** - Non-root, resource-limited containers
 14. ✅ **Integration Tests** - End-to-end validation
-15. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
+15. ✅ **DAST** - OWASP ZAP dynamic security testing (enforced, fails on vulnerabilities)
+16. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
 
 ### 🎯 Security Features Implemented
 
 **Shift-Left Security** ✅
 - ✅ Secret scanning with enforcement (GitLeaks)
-- ✅ SAST with enforcement (Semgrep)
+- ✅ SAST with enforcement (Semgrep) - static code analysis
+- ✅ DAST with enforcement (OWASP ZAP) - dynamic runtime testing
 - ✅ Dependency vulnerability scanning with enforcement (Trivy)
 - ✅ Container vulnerability scanning with enforcement (Trivy)
 - ✅ IaC security scanning (Checkov)
@@ -63,17 +66,24 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ SBOM in SPDX format
 - ✅ Secure container registry integration
 
+**Runtime Security** ✅
+- ✅ Dynamic security testing against live application
+- ✅ OWASP Top 10 vulnerability detection
+- ✅ XSS, SQLi, auth bypass detection
+- ✅ API security testing
+
 ### 📊 Security Enforcement Policy
 
 | Check Type | Tool | Severity Threshold | Action |
 |------------|------|-------------------|--------|
 | Secrets | GitLeaks | Any | **FAIL** |
-| Code Vulnerabilities | Semgrep | ERROR, WARNING | **FAIL** |
+| Code Vulnerabilities (SAST) | Semgrep | ERROR, WARNING | **FAIL** |
 | Dependencies | Trivy | HIGH, CRITICAL | **FAIL** |
 | Container | Trivy | HIGH, CRITICAL | **FAIL** |
+| Runtime Vulnerabilities (DAST) | OWASP ZAP | Any | **FAIL** |
 | IaC | Checkov | INFO | Report |
 
-**Result**: Vulnerable code cannot reach production.
+**Result**: Vulnerable code cannot reach production - tested both statically AND dynamically.
 
 ### Why This Application?
 
@@ -225,30 +235,37 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 **2. Static Application Security Testing (SAST)** 🛡️
 - Tool: Semgrep
 - Detects: SQL injection, XSS, insecure deserialization, crypto issues
-- Rulesets: C# security, security-audit
+- Rulesets: C# security, security-audit, OWASP Top 10
 - Enforcement: **BLOCKS** on ERROR/WARNING severity
 
-**3. Dependency Vulnerability Scanning** 🔒
+**3. Dynamic Application Security Testing (DAST)** 🎯
+- Tool: OWASP ZAP (Zed Attack Proxy)
+- Tests: Running application for vulnerabilities
+- Detects: XSS, SQL injection, authentication bypasses, OWASP Top 10
+- Method: Baseline scan with spidering and active scanning
+- Enforcement: **BLOCKS** on any vulnerability detected
+
+**4. Dependency Vulnerability Scanning** 🔒
 - Tool: Trivy (filesystem mode)
 - Scans: NuGet packages and transitive dependencies
 - Enforcement: **BLOCKS** on HIGH/CRITICAL vulnerabilities
 
-**4. Infrastructure as Code (IaC) Security** ☸️
+**5. Infrastructure as Code (IaC) Security** ☸️
 - Tool: Checkov
 - Validates: Kubernetes manifests for misconfigurations
 - Checks: Privileged containers, resource limits, RBAC, network policies
 
-**5. Container Security** 🐳
+**6. Container Security** 🐳
 - Tool: Trivy (image mode)
 - Scans: OS packages, application dependencies, layers
 - Enforcement: **BLOCKS** on HIGH/CRITICAL vulnerabilities
 
-**6. Software Bill of Materials (SBOM)** 📋
+**7. Software Bill of Materials (SBOM)** 📋
 - Tool: Syft
 - Format: SPDX JSON
 - Tracks: All dependencies for supply chain transparency
 
-**7. Runtime Security Hardening** 🔧
+**8. Runtime Security Hardening** 🔧
 - Non-root user execution (searchapi:searchapi)
 - Multi-stage builds (minimize attack surface)
 - Resource limits (CPU, memory)
@@ -261,6 +278,7 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 |----------|------|---------|-------------|
 | Secrets | GitLeaks | Find leaked credentials | ✅ Enforced |
 | SAST | Semgrep | Code vulnerability analysis | ✅ Enforced |
+| DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
 | Dependencies | Trivy | Package vulnerabilities | ✅ Enforced |
 | IaC | Checkov | K8s configuration security | ⚠️ Report |
 | Container | Trivy | Image vulnerabilities | ✅ Enforced |

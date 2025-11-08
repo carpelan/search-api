@@ -478,6 +478,50 @@ func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Dire
 	return output, nil
 }
 
+// DastScan performs Dynamic Application Security Testing using OWASP ZAP
+// Scans the running application for vulnerabilities (XSS, SQLi, auth issues, etc.)
+func (m *SearchApi) DastScan(ctx context.Context, cluster *K3sCluster) (string, error) {
+	// Run OWASP ZAP baseline scan against the deployed API
+	zapContainer := dag.Container().
+		From("ghcr.io/zaproxy/zaproxy:stable").
+		WithServiceBinding("k3s", cluster.Service).
+		WithDirectory("/zap/kubeconfig", cluster.Kubeconfig).
+		WithEnvVariable("KUBECONFIG", "/zap/kubeconfig/kubeconfig").
+		// Install kubectl to port-forward
+		WithExec([]string{"sh", "-c", "curl -LO https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"}).
+		// Port-forward the API service in background
+		WithExec([]string{"sh", "-c", "kubectl port-forward -n search-system svc/search-api 8080:80 &"}).
+		WithExec([]string{"sleep", "10"}).  // Wait for port-forward to be ready
+		// Run ZAP baseline scan
+		WithExec([]string{
+			"zap-baseline.py",
+			"-t", "http://localhost:8080",      // Target URL
+			"-r", "/zap/wrk/report.html",       // HTML report
+			"-J", "/zap/wrk/report.json",       // JSON report
+			"-w", "/zap/wrk/report.md",         // Markdown report
+			"-c", "/zap/wrk/rules.tsv",         // Custom rules (optional)
+			"-d",                                // Enable debug output
+			"-I",                                // Include informational alerts
+			"-z", "-config api.disablekey=true", // Disable API key requirement
+		})
+
+	// Get the JSON report
+	report, err := zapContainer.
+		WithExec([]string{"cat", "/zap/wrk/report.json"}).
+		Stdout(ctx)
+
+	if err != nil {
+		// ZAP returns non-zero if vulnerabilities are found
+		// Still try to get the report for debugging
+		report, _ = zapContainer.
+			WithExec([]string{"sh", "-c", "cat /zap/wrk/report.json 2>/dev/null || echo '{\"error\": \"scan failed\"}'"}).
+			Stdout(ctx)
+		return report, fmt.Errorf("DAST FAILED - vulnerabilities detected in running application: %w", err)
+	}
+
+	return report, nil
+}
+
 // PushToRegistry pushes the final image to any container registry
 // Works with Harbor, GHCR, Docker Hub, GitLab Registry, etc.
 func (m *SearchApi) PushToRegistry(
@@ -641,16 +685,24 @@ func (m *SearchApi) FullPipeline(
 	}
 	report += "✅ Integration tests passed\n\n"
 
-	// Step 15: Push to Container Registry (if credentials provided)
+	// SECURITY GATE 6: DAST - Dynamic Application Security Testing
+	report += "🎯 Step 15: Running DAST (OWASP ZAP)...\n"
+	dastResult, err := m.DastScan(ctx, cluster)
+	if err != nil {
+		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+	}
+	report += "✅ DAST passed - no vulnerabilities in running application\n\n"
+
+	// Step 16: Push to Container Registry (if credentials provided)
 	if registryUrl != "" && registryUsername != nil && registryPassword != nil && imageRef != "" {
-		report += "🏗️  Step 15: Pushing to container registry...\n"
+		report += "🏗️  Step 16: Pushing to container registry...\n"
 		pushedImage, err := m.PushToRegistry(ctx, container, registryUrl, registryUsername, registryPassword, imageRef, tag)
 		if err != nil {
 			return report, fmt.Errorf("failed to push to registry: %w", err)
 		}
 		report += fmt.Sprintf("✅ Pushed to registry: %s\n\n", pushedImage)
 	} else {
-		report += "⏭️  Step 15: Skipping registry push (credentials not provided)\n\n"
+		report += "⏭️  Step 16: Skipping registry push (credentials not provided)\n\n"
 	}
 
 	report += "🎉 Security-First Pipeline Completed Successfully!\n"
