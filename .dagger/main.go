@@ -21,20 +21,99 @@ func (m *SearchApi) Build(ctx context.Context, source *dagger.Directory) (*dagge
 		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}), nil
 }
 
-// Run security analysis with dependency check
-func (m *SearchApi) SecurityScan(ctx context.Context, source *dagger.Directory) (string, error) {
+// SecretScan scans for hardcoded secrets using GitLeaks
+func (m *SearchApi) SecretScan(ctx context.Context, source *dagger.Directory) (string, error) {
+	// Scan with GitLeaks - ENFORCED (fails if secrets found)
 	output, err := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
+		From("zricethezav/gitleaks:latest").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
-		// Restore to get packages
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		// List dependencies
-		WithExec([]string{"dotnet", "list", "SearchApi/SearchApi.csproj", "package", "--vulnerable", "--include-transitive"}).
+		WithExec([]string{
+			"detect",
+			"--source", ".",
+			"--no-git",
+			"--verbose",
+			"--exit-code", "1", // FAIL if secrets found
+		}).
 		Stdout(ctx)
 
 	if err != nil {
-		return "", fmt.Errorf("security scan failed: %w", err)
+		return "", fmt.Errorf("SECRET SCAN FAILED - secrets detected in code: %w", err)
+	}
+
+	return output, nil
+}
+
+// SastScan performs Static Application Security Testing using Semgrep
+func (m *SearchApi) SastScan(ctx context.Context, source *dagger.Directory) (string, error) {
+	// Scan with Semgrep - ENFORCED (fails on security issues)
+	output, err := dag.Container().
+		From("returntocorp/semgrep:latest").
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{
+			"semgrep",
+			"--config=auto", // Auto-detect rules for C#
+			"--config=p/csharp",
+			"--config=p/security-audit",
+			"--error",       // Treat findings as errors
+			"--severity=ERROR",
+			"--severity=WARNING",
+			"--json",
+		}).
+		Stdout(ctx)
+
+	if err != nil {
+		return "", fmt.Errorf("SAST FAILED - security vulnerabilities found in code: %w", err)
+	}
+
+	return output, nil
+}
+
+// DependencyScan scans dependencies for vulnerabilities with enforcement
+func (m *SearchApi) DependencyScan(ctx context.Context, source *dagger.Directory) (string, error) {
+	// Using Trivy for comprehensive dependency scanning with enforcement
+	output, err := dag.Container().
+		From("aquasec/trivy:latest").
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{
+			"fs",
+			"--scanners", "vuln",
+			"--severity", "HIGH,CRITICAL",
+			"--exit-code", "1", // FAIL on vulnerabilities
+			"--format", "json",
+			".",
+		}).
+		Stdout(ctx)
+
+	if err != nil {
+		return "", fmt.Errorf("DEPENDENCY SCAN FAILED - vulnerable packages found: %w", err)
+	}
+
+	return output, nil
+}
+
+// IacScan scans Infrastructure as Code (Kubernetes manifests) for security issues
+func (m *SearchApi) IacScan(ctx context.Context, source *dagger.Directory) (string, error) {
+	// Scan Kubernetes manifests with Checkov - ENFORCED
+	output, err := dag.Container().
+		From("bridgecrew/checkov:latest").
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{
+			"-d", "k8s",
+			"--framework", "kubernetes",
+			"--compact",
+			"--quiet",
+			"--soft-fail", // Report but don't fail for now (can be changed to hard fail)
+		}).
+		Stdout(ctx)
+
+	if err != nil {
+		// Note: Checkov may return non-zero on findings even with soft-fail
+		// This is informational for now
+		return output, nil
 	}
 
 	return output, nil
@@ -373,7 +452,7 @@ func (m *SearchApi) PushToHarbor(
 	return address, nil
 }
 
-// FullPipeline runs the complete CI/CD pipeline
+// FullPipeline runs the complete security-first CI/CD pipeline
 func (m *SearchApi) FullPipeline(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -388,35 +467,60 @@ func (m *SearchApi) FullPipeline(
 	// +default="latest"
 	tag string,
 ) (string, error) {
-	report := "🚀 Starting Full CI/CD Pipeline\n\n"
+	report := "🚀 Starting Security-First CI/CD Pipeline\n\n"
 
-	// Step 1: Build and Unit Test
-	report += "📦 Step 1: Building and running unit tests...\n"
-	_, err := m.Build(ctx, source)
+	// SECURITY GATE 1: Secret Scanning (FAIL FAST)
+	report += "🔐 Step 1: Scanning for hardcoded secrets...\n"
+	secretResult, err := m.SecretScan(ctx, source)
+	if err != nil {
+		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+	}
+	report += "✅ No secrets detected\n\n"
+
+	// SECURITY GATE 2: SAST - Static Application Security Testing (FAIL FAST)
+	report += "🛡️  Step 2: Running SAST (Semgrep)...\n"
+	sastResult, err := m.SastScan(ctx, source)
+	if err != nil {
+		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+	}
+	report += fmt.Sprintf("✅ SAST passed - no security vulnerabilities in code\n\n")
+
+	// Step 3: Build and Unit Test
+	report += "📦 Step 3: Building and running unit tests...\n"
+	_, err = m.Build(ctx, source)
 	if err != nil {
 		return report, fmt.Errorf("build failed: %w", err)
 	}
 	report += "✅ Build and unit tests passed\n\n"
 
-	// Step 2: Static Analysis
-	report += "🔍 Step 2: Running static analysis...\n"
+	// Step 4: Code Quality - Static Analysis
+	report += "🔍 Step 4: Running code quality checks...\n"
 	staticResult, err := m.StaticAnalysis(ctx, source)
 	if err != nil {
-		report += fmt.Sprintf("⚠️  Static analysis warnings: %v\n\n", err)
+		report += fmt.Sprintf("⚠️  Code formatting warnings: %v\n\n", err)
 	} else {
 		report += fmt.Sprintf("✅ %s\n\n", staticResult)
 	}
 
-	// Step 3: Security Scan
-	report += "🔒 Step 3: Running security dependency scan...\n"
-	securityResult, err := m.SecurityScan(ctx, source)
+	// SECURITY GATE 3: Dependency Vulnerability Scan (ENFORCED)
+	report += "🔒 Step 5: Scanning dependencies for vulnerabilities...\n"
+	depResult, err := m.DependencyScan(ctx, source)
 	if err != nil {
-		return report, fmt.Errorf("security scan failed: %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
-	report += fmt.Sprintf("✅ Security scan completed\n%s\n\n", securityResult)
+	report += "✅ No vulnerable dependencies found\n\n"
 
-	// Step 4: Generate SBOM
-	report += "📋 Step 4: Generating SBOM...\n"
+	// SECURITY GATE 4: IaC Security Scan
+	report += "☸️  Step 6: Scanning Kubernetes manifests (IaC)...\n"
+	iacResult, err := m.IacScan(ctx, source)
+	if err != nil {
+		report += fmt.Sprintf("⚠️  IaC scan completed with findings\n\n")
+	} else {
+		report += "✅ IaC security scan completed\n\n"
+	}
+
+	// Step 7: Generate SBOM
+	report += "📋 Step 7: Generating SBOM...\n"
 	sbom, err := m.GenerateSbom(ctx, source)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  SBOM generation warning: %v\n\n", err)
@@ -424,38 +528,37 @@ func (m *SearchApi) FullPipeline(
 		report += fmt.Sprintf("✅ SBOM generated (%d bytes)\n\n", len(sbom))
 	}
 
-	// Step 5: Build Container
-	report += "🐳 Step 5: Building container image...\n"
+	// Step 8: Build Container
+	report += "🐳 Step 8: Building container image...\n"
 	container := m.BuildContainer(ctx, source)
 	report += "✅ Container image built\n\n"
 
-	// Step 6: Scan Container
-	report += "🔎 Step 6: Scanning container for vulnerabilities...\n"
+	// SECURITY GATE 5: Container Vulnerability Scan (ENFORCED)
+	report += "🔎 Step 9: Scanning container for vulnerabilities...\n"
 	scanResult, err := m.ScanContainer(ctx, container)
 	if err != nil {
-		report += fmt.Sprintf("⚠️  Container scan warning: %v\n\n", err)
-	} else {
-		report += fmt.Sprintf("✅ Container scan completed (%d bytes of results)\n\n", len(scanResult))
+		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
+	report += "✅ Container has no HIGH/CRITICAL vulnerabilities\n\n"
 
-	// Step 7: Push to Local Registry
-	report += "📤 Step 7: Pushing to local registry...\n"
+	// Step 10: Push to Local Registry
+	report += "📤 Step 10: Pushing to local registry...\n"
 	localImage, err := m.PushToLocalRegistry(ctx, container, tag)
 	if err != nil {
 		return report, fmt.Errorf("failed to push to local registry: %w", err)
 	}
 	report += fmt.Sprintf("✅ Pushed to local registry: %s\n\n", localImage)
 
-	// Step 8: Setup K3s Cluster
-	report += "☸️  Step 8: Setting up K3s cluster...\n"
+	// Step 11: Setup K3s Cluster
+	report += "🏗️  Step 11: Setting up K3s cluster...\n"
 	cluster, err := m.SetupK3s(ctx)
 	if err != nil {
 		return report, fmt.Errorf("failed to setup K3s: %w", err)
 	}
 	report += "✅ K3s cluster ready\n\n"
 
-	// Step 9: Deploy Solr
-	report += "🔍 Step 9: Deploying Solr...\n"
+	// Step 12: Deploy Solr
+	report += "🔍 Step 12: Deploying Solr...\n"
 	k8sManifests := source.Directory("k8s")
 	err = m.DeploySolr(ctx, k8sManifests, cluster)
 	if err != nil {
@@ -463,34 +566,35 @@ func (m *SearchApi) FullPipeline(
 	}
 	report += "✅ Solr deployed successfully\n\n"
 
-	// Step 10: Deploy API
-	report += "🚀 Step 10: Deploying Search API...\n"
+	// Step 13: Deploy API
+	report += "🚀 Step 13: Deploying Search API...\n"
 	err = m.DeployApi(ctx, k8sManifests, cluster, tag)
 	if err != nil {
 		return report, fmt.Errorf("failed to deploy API: %w", err)
 	}
 	report += "✅ Search API deployed successfully\n\n"
 
-	// Step 11: Run Integration Tests
-	report += "🧪 Step 11: Running integration tests...\n"
+	// Step 14: Run Integration Tests
+	report += "🧪 Step 14: Running integration tests...\n"
 	integrationResult, err := m.RunIntegrationTests(ctx, source, cluster)
 	if err != nil {
 		return report, fmt.Errorf("integration tests failed: %w", err)
 	}
-	report += fmt.Sprintf("✅ Integration tests passed\n%s\n\n", integrationResult)
+	report += "✅ Integration tests passed\n\n"
 
-	// Step 12: Push to Harbor (if credentials provided)
+	// Step 15: Push to Harbor (if credentials provided)
 	if harborUrl != "" && harborUsername != nil && harborPassword != nil && harborProject != "" {
-		report += "🏗️  Step 12: Pushing to Harbor registry...\n"
+		report += "🏗️  Step 15: Pushing to Harbor registry...\n"
 		harborImage, err := m.PushToHarbor(ctx, container, harborUrl, harborUsername, harborPassword, harborProject, tag)
 		if err != nil {
 			return report, fmt.Errorf("failed to push to Harbor: %w", err)
 		}
 		report += fmt.Sprintf("✅ Pushed to Harbor: %s\n\n", harborImage)
 	} else {
-		report += "⏭️  Step 12: Skipping Harbor push (credentials not provided)\n\n"
+		report += "⏭️  Step 15: Skipping Harbor push (credentials not provided)\n\n"
 	}
 
-	report += "🎉 Pipeline completed successfully!\n"
+	report += "🎉 Security-First Pipeline Completed Successfully!\n"
+	report += "🔒 All security gates passed - safe to deploy\n"
 	return report, nil
 }

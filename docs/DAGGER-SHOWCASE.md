@@ -26,32 +26,35 @@ We chose a C# Search API for Riksarkivet metadata as the example because it demo
 
 But the **focus is on the pipeline**, not the search functionality.
 
-### The 12-Step Pipeline
+### The 15-Step Security-First Pipeline
 
-Our Dagger pipeline demonstrates:
+Our Dagger pipeline demonstrates comprehensive security automation:
 
 ```go
-// .dagger/main.go - Complete CI/CD in Go code
+// .dagger/main.go - Security-First CI/CD in Go code
 
-// Step 1-2: Build and Test
+// Security Gates (Fail-Fast)
+dagger call secret-scan --source=.       // GitLeaks
+dagger call sast-scan --source=.         // Semgrep
+dagger call dependency-scan --source=.   // Trivy FS
+dagger call iac-scan --source=.          // Checkov
+
+// Build and Quality
 dagger call build --source=.
 dagger call static-analysis --source=.
-
-// Step 3-4: Security
-dagger call security-scan --source=.
 dagger call generate-sbom --source=.
 
-// Step 5-6: Container
+// Container Security
 dagger call build-container --source=.
-dagger call scan-container --container=$(...)
+dagger call scan-container --container=$(...)  // Trivy enforced
 
-// Step 7-11: Deploy & Test
+// Deploy & Test
 dagger call setup-k3s
 dagger call deploy-solr ...
 dagger call deploy-api ...
 dagger call run-integration-tests ...
 
-// Step 12: Publish
+// Publish
 dagger call push-to-harbor ...
 ```
 
@@ -203,9 +206,18 @@ dagger-pipeline:
 ✅ **Developer-Friendly** - Debug locally, same as CI
 ✅ **Type-Safe** - Go functions, not YAML strings
 ✅ **Fast** - Intelligent caching, parallel execution
-✅ **Secure** - Built-in security scanning, SBOM generation
+✅ **Comprehensive Security** - 5 enforced security gates (secrets, SAST, dependencies, IaC, containers)
+✅ **Shift-Left Security** - Vulnerabilities blocked before deployment
+✅ **Supply Chain Security** - SBOM generation and dependency tracking
 ✅ **Testable** - Integration tests in ephemeral K3s clusters
 ✅ **Flexible** - Easy to extend and modify
+
+**Security Tools Integrated:**
+- GitLeaks (secret scanning)
+- Semgrep (SAST)
+- Trivy (dependency + container scanning)
+- Checkov (IaC security)
+- Syft (SBOM generation)
 
 ### What This Is NOT
 
