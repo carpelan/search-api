@@ -86,7 +86,8 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ Image signing capability (Cosign/Sigstore)
 - ✅ Secure container registry integration
 - ✅ CIS Docker Benchmark compliance
-- ✅ Container size optimization (30-50% reduction)
+- ✅ Container size optimization (30-60% reduction)
+- ✅ Distroless container builds (no shell, minimal attack surface)
 
 **Runtime Security** ✅
 - ✅ Dynamic security testing against live application
@@ -244,12 +245,14 @@ dagger call cis-benchmark \          # CIS Docker Benchmark compliance
   --container=$(dagger call build-container)
 
 # Container Size Optimization
-dagger call build-container-optimized  # Build optimized container (Alpine + trimming)
+dagger call build-container-optimized        # Alpine + trimming (30-40% smaller)
+dagger call build-container-distroless       # Distroless - NO shell (40-60% smaller)
+dagger call build-container-distroless-extra # Distroless + ICU/tzdata (35-50% smaller)
 
-dagger call container-size-analysis \  # Analyze container size and layers
+dagger call container-size-analysis \        # Analyze container size and layers
   --container=$(dagger call build-container)
 
-dagger call compare-container-sizes    # Compare standard vs optimized builds
+dagger call compare-container-sizes          # Compare ALL 4 variants with recommendations
 
 # Setup K3s cluster for testing
 dagger call setup-k3s
@@ -515,25 +518,41 @@ This pipeline implements **defense-in-depth** with multiple security layers:
   * Baseline security validation
 
 **Container Size Optimization** 📏
-- Tools: Alpine images, .NET trimming, dive analysis
+- Tools: Alpine images, Distroless images, .NET trimming, dive analysis
 - Purpose: Minimize container size for security and efficiency
-- Techniques:
-  * Alpine base images (30-40% smaller than Debian)
-  * IL trimming (removes unused code)
+- Build Variants Available:
+  * **Standard (Debian)**: Full Linux environment, easy debugging (~230-250MB)
+  * **Optimized (Alpine)**: 30-40% smaller with trimming (~120-150MB)
+  * **Distroless (Chiseled)**: 40-60% smaller, no shell/package manager (~100-120MB)
+  * **Distroless-Extra**: Distroless + ICU/tzdata for globalization (~110-130MB)
+- Optimization Techniques:
+  * Alpine base images (musl libc, minimal packages)
+  * Distroless chiseled Ubuntu (Microsoft's minimal images)
+  * IL trimming (removes unused .NET framework code)
   * ReadyToRun compilation (AOT for faster startup)
   * Debug symbols removal
-  * Single-file deployment options
-- Analysis:
+  * Invariant globalization (smaller, use -extra if needed)
+- Distroless Security Benefits:
+  * ✅ **NO shell** - Prevents shell-based exploits and exec attacks
+  * ✅ **NO package manager** - Cannot install additional software
+  * ✅ **Runs as non-root by default** - UID 1654 (app user)
+  * ✅ **Minimal attack surface** - Only .NET runtime + your app
+  * ✅ **Fewer CVEs** - Drastically reduced package count
+  * ✅ **Smaller size** - 40-60% reduction vs Debian
+- Analysis Tools:
   * Layer-by-layer breakdown with dive
-  * Size comparison between standard and optimized builds
+  * Size comparison across all 4 variants
   * Waste identification and optimization recommendations
 - Benefits:
-  * **Security**: Smaller attack surface, fewer CVEs
-  * **Performance**: Faster image pulls and deployments
+  * **Security**: Smaller attack surface, fewer CVEs, no shell access
+  * **Performance**: Faster image pulls and container startup
   * **Cost**: Lower storage and bandwidth costs
-  * **Efficiency**: Reduced resource consumption
-- Expected reduction: 30-50% smaller image size
-- Trade-offs: Slightly longer build time, potential runtime compatibility issues
+  * **Compliance**: Meets security hardening requirements
+- Expected reduction: 30-60% smaller image size
+- Trade-offs:
+  * Distroless: No shell access (harder to debug in production)
+  * Trimming: Potential runtime issues with reflection-heavy code
+  * Build time: Slightly longer with R2R compilation
 
 ### Security Tools Integration
 

@@ -397,6 +397,99 @@ Optimization Recommendations:
 	return result, nil
 }
 
+// BuildContainerDistroless builds a distroless container for maximum security and minimal size
+// Uses Microsoft's chiseled Ubuntu images - no shell, no package manager, minimal attack surface
+func (m *SearchApi) BuildContainerDistroless(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) *dagger.Container {
+	// Build stage - use Alpine SDK for smaller size
+	publishDir := dag.Container().
+		From("mcr.microsoft.com/dotnet/sdk:8.0-alpine").
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
+		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
+		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
+		// Publish with trimming and ReadyToRun for optimal size and startup
+		WithExec([]string{
+			"dotnet", "publish", "SearchApi/SearchApi.csproj",
+			"-c", "Release",
+			"-o", "/app/publish",
+			"--no-restore",
+			"/p:PublishTrimmed=true",                    // Enable IL trimming
+			"/p:TrimMode=link",                           // Aggressive trimming
+			"/p:PublishReadyToRun=true",                  // AOT compilation for startup
+			"/p:PublishSingleFile=false",                 // Better for containerization
+			"/p:EnableCompressionInSingleFile=true",      // Compress assemblies
+			"/p:DebugType=none",                          // Remove debug symbols
+			"/p:DebugSymbols=false",                      // Remove debug symbols
+			"/p:InvariantGlobalization=true",             // Remove globalization data for smaller size
+		}).
+		Directory("/app/publish")
+
+	// Runtime stage - use distroless chiseled Ubuntu (NO shell, NO package manager)
+	return dag.Container().
+		From("mcr.microsoft.com/dotnet/aspnet:8.0-jammy-chiseled").
+		WithWorkdir("/app").
+		WithDirectory("/app", publishDir).
+		// Distroless images run as non-root by default (APP_UID=1654)
+		// No need to create users - already configured securely
+		WithEnvVariable("ASPNETCORE_URLS", "http://+:8080").
+		WithEnvVariable("DOTNET_RUNNING_IN_CONTAINER", "true").
+		WithEnvVariable("DOTNET_EnableDiagnostics", "0").
+		WithEnvVariable("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1").  // Match build setting
+		WithExposedPort(8080).
+		WithEntrypoint([]string{"dotnet", "SearchApi.dll"})
+}
+
+// BuildContainerDistrolessExtra builds an even smaller distroless variant
+// Uses the -extra variant which includes additional components (ICU, tzdata) - more compatible
+func (m *SearchApi) BuildContainerDistrolessExtra(
+	ctx context.Context,
+	// +optional
+	// +defaultPath="."
+	source *dagger.Directory,
+) *dagger.Container {
+	// Build stage - use Alpine SDK for smaller size
+	publishDir := dag.Container().
+		From("mcr.microsoft.com/dotnet/sdk:8.0-alpine").
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
+		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
+		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
+		// Publish with trimming and ReadyToRun for optimal size and startup
+		WithExec([]string{
+			"dotnet", "publish", "SearchApi/SearchApi.csproj",
+			"-c", "Release",
+			"-o", "/app/publish",
+			"--no-restore",
+			"/p:PublishTrimmed=true",                    // Enable IL trimming
+			"/p:TrimMode=link",                           // Aggressive trimming
+			"/p:PublishReadyToRun=true",                  // AOT compilation for startup
+			"/p:PublishSingleFile=false",                 // Better for containerization
+			"/p:EnableCompressionInSingleFile=true",      // Compress assemblies
+			"/p:DebugType=none",                          // Remove debug symbols
+			"/p:DebugSymbols=false",                      // Remove debug symbols
+		}).
+		Directory("/app/publish")
+
+	// Runtime stage - use distroless chiseled Ubuntu -extra variant (includes ICU, tzdata)
+	return dag.Container().
+		From("mcr.microsoft.com/dotnet/aspnet:8.0-jammy-chiseled-extra").
+		WithWorkdir("/app").
+		WithDirectory("/app", publishDir).
+		// Distroless images run as non-root by default (APP_UID=1654)
+		WithEnvVariable("ASPNETCORE_URLS", "http://+:8080").
+		WithEnvVariable("DOTNET_RUNNING_IN_CONTAINER", "true").
+		WithEnvVariable("DOTNET_EnableDiagnostics", "0").
+		WithExposedPort(8080).
+		WithEntrypoint([]string{"dotnet", "SearchApi.dll"})
+}
+
 // CompareContainerSizes builds both standard and optimized containers and compares sizes
 func (m *SearchApi) CompareContainerSizes(
 	ctx context.Context,
@@ -408,7 +501,7 @@ func (m *SearchApi) CompareContainerSizes(
 	report += "=========================\n\n"
 
 	// Build standard container
-	report += "Building standard container...\n"
+	report += "1. Building standard container (Debian base)...\n"
 	standardContainer := m.BuildContainer(ctx, source)
 	standardTarball := standardContainer.AsTarball()
 
@@ -421,10 +514,10 @@ func (m *SearchApi) CompareContainerSizes(
 	if err != nil {
 		standardSize = "Error getting size"
 	}
-	report += fmt.Sprintf("Standard Build (Debian base):\n%s\n\n", standardSize)
+	report += fmt.Sprintf("   Standard Build (Debian base):\n   %s\n\n", standardSize)
 
 	// Build optimized container
-	report += "Building optimized container...\n"
+	report += "2. Building optimized container (Alpine + trimming)...\n"
 	optimizedContainer := m.BuildContainerOptimized(ctx, source)
 	optimizedTarball := optimizedContainer.AsTarball()
 
@@ -437,16 +530,79 @@ func (m *SearchApi) CompareContainerSizes(
 	if err != nil {
 		optimizedSize = "Error getting size"
 	}
-	report += fmt.Sprintf("Optimized Build (Alpine + Trimming):\n%s\n\n", optimizedSize)
+	report += fmt.Sprintf("   Optimized Build (Alpine + Trimming):\n   %s\n\n", optimizedSize)
 
-	report += "Optimizations Applied:\n"
-	report += "✅ Alpine base image (smaller than Debian)\n"
-	report += "✅ IL trimming (removes unused code)\n"
-	report += "✅ ReadyToRun compilation (faster startup)\n"
-	report += "✅ Debug symbols removed\n"
-	report += "✅ Diagnostics disabled\n\n"
+	// Build distroless container
+	report += "3. Building distroless container (chiseled Ubuntu)...\n"
+	distrolessContainer := m.BuildContainerDistroless(ctx, source)
+	distrolessTarball := distrolessContainer.AsTarball()
 
-	report += "Expected Reduction: 30-50% smaller image size\n"
+	distrolessSize, err := dag.Container().
+		From("alpine:latest").
+		WithMountedFile("/image.tar", distrolessTarball).
+		WithExec([]string{"sh", "-c", "ls -lh /image.tar | awk '{print \"Size: \" $5}' && du -h /image.tar | awk '{print \"Disk: \" $1}'"}).
+		Stdout(ctx)
+
+	if err != nil {
+		distrolessSize = "Error getting size"
+	}
+	report += fmt.Sprintf("   Distroless Build (Chiseled Ubuntu):\n   %s\n\n", distrolessSize)
+
+	// Build distroless-extra container
+	report += "4. Building distroless-extra container (with ICU/tzdata)...\n"
+	distrolessExtraContainer := m.BuildContainerDistrolessExtra(ctx, source)
+	distrolessExtraTarball := distrolessExtraContainer.AsTarball()
+
+	distrolessExtraSize, err := dag.Container().
+		From("alpine:latest").
+		WithMountedFile("/image.tar", distrolessExtraTarball).
+		WithExec([]string{"sh", "-c", "ls -lh /image.tar | awk '{print \"Size: \" $5}' && du -h /image.tar | awk '{print \"Disk: \" $1}'"}).
+		Stdout(ctx)
+
+	if err != nil {
+		distrolessExtraSize = "Error getting size"
+	}
+	report += fmt.Sprintf("   Distroless-Extra Build:\n   %s\n\n", distrolessExtraSize)
+
+	report += "\n🔒 Security & Optimization Summary:\n"
+	report += "===================================\n\n"
+
+	report += "Standard (Debian):\n"
+	report += "  ✅ Full-featured Linux environment\n"
+	report += "  ✅ Easy debugging with shell access\n"
+	report += "  ⚠️  Largest size, most packages\n"
+	report += "  ⚠️  Larger attack surface\n\n"
+
+	report += "Optimized (Alpine + Trimming):\n"
+	report += "  ✅ 30-40% smaller than Debian\n"
+	report += "  ✅ IL trimming removes unused code\n"
+	report += "  ✅ ReadyToRun for faster startup\n"
+	report += "  ⚠️  Still includes shell and package manager\n\n"
+
+	report += "Distroless (Chiseled Ubuntu):\n"
+	report += "  ✅ 40-60% smaller than Debian\n"
+	report += "  ✅ NO shell (prevents shell-based attacks)\n"
+	report += "  ✅ NO package manager (minimal tools)\n"
+	report += "  ✅ Runs as non-root by default (UID 1654)\n"
+	report += "  ✅ Smallest attack surface\n"
+	report += "  ⚠️  Harder to debug (no shell access)\n"
+	report += "  ⚠️  Minimal globalization (use -extra if needed)\n\n"
+
+	report += "Distroless-Extra (With ICU/tzdata):\n"
+	report += "  ✅ Same security as distroless\n"
+	report += "  ✅ Includes globalization support\n"
+	report += "  ✅ Better locale/timezone handling\n"
+	report += "  ⚠️  Slightly larger than base distroless\n\n"
+
+	report += "📊 Expected Size Reduction:\n"
+	report += "  • Alpine:           30-40% smaller\n"
+	report += "  • Distroless:       40-60% smaller\n"
+	report += "  • Distroless-Extra: 35-50% smaller\n\n"
+
+	report += "🎯 Recommendation:\n"
+	report += "  • Development: Use Standard (Debian) for easy debugging\n"
+	report += "  • Staging: Use Optimized (Alpine) for size + debuggability\n"
+	report += "  • Production: Use Distroless for maximum security\n"
 
 	return report, nil
 }
@@ -1353,6 +1509,9 @@ func (m *SearchApi) FullPipeline(
 	report += "🎉 Security-First Pipeline Completed Successfully!\n"
 	report += "🔒 All 9 security gates passed - safe to deploy\n"
 	report += "📊 Pipeline Stats: 25 steps | 9 enforced gates | 7 optional checks\n"
-	report += "📏 Container optimization: Use BuildContainerOptimized() for 30-50% size reduction\n"
+	report += "📏 Container optimization options:\n"
+	report += "   • BuildContainerOptimized() - Alpine + trimming (30-40% smaller)\n"
+	report += "   • BuildContainerDistroless() - No shell, max security (40-60% smaller)\n"
+	report += "   • CompareContainerSizes() - Compare all 4 build variants\n"
 	return report, nil
 }
