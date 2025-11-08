@@ -25,7 +25,7 @@ This demonstrates a **security-focused CI/CD pipeline** with Dagger:
 3. ⚠️ **Dependency Vulnerability Scan** - NuGet packages (no enforcement - see gaps)
 4. ✅ **SBOM Generation** - Complete software bill of materials (Syft)
 5. ✅ **Container Build** - Multi-stage, non-root user
-6. ⚠️ **Container Security Scan** - Trivy (currently doesn't fail build - see gaps)
+6. ✅ **Container Security Scan** - Trivy with enforcement (FAILS on HIGH/CRITICAL)
 7. ✅ **Local Registry Push** - Secure image distribution
 8. ✅ **K3s Cluster** - Ephemeral test environment
 9. ✅ **Service Deployment** - Solr with security context
@@ -35,14 +35,21 @@ This demonstrates a **security-focused CI/CD pipeline** with Dagger:
 
 ### 🚨 Known Security Gaps (Intentional for demonstration)
 
-This POC demonstrates basic security scanning but has **intentional gaps** to show what a production pipeline needs:
+This POC demonstrates core security scanning with **intentional gaps** to show what a production pipeline needs:
 
+**Implemented** ✅
+- Container vulnerability scanning with enforcement (Trivy fails on HIGH/CRITICAL)
+- SBOM generation (Syft)
+- Non-root container execution
+- Resource limits and security contexts
+
+**Gaps for Production** ❌
 - ❌ **No secret scanning** (GitLeaks, TruffleHog)
-- ❌ **No real SAST** (current static analysis is just code formatting)
-- ❌ **No policy enforcement** (scans run but don't fail builds)
-- ❌ **No IaC scanning** (Kubernetes manifests not checked)
-- ❌ **No image signing** (Cosign, Sigstore)
-- ❌ **No license compliance**
+- ❌ **No real SAST** (current static analysis is just code formatting, not semantic analysis)
+- ❌ **No dependency enforcement** (scans run but don't fail builds)
+- ❌ **No IaC scanning** (Kubernetes manifests not checked with Checkov/Kubesec)
+- ❌ **No image signing** (Cosign, Sigstore for supply chain security)
+- ❌ **No license compliance** checking
 
 **See [SECURITY-CI-ANALYSIS.md](docs/SECURITY-CI-ANALYSIS.md)** for comprehensive analysis and recommended improvements.
 
