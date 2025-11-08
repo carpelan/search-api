@@ -167,15 +167,28 @@ DELETE /api/search/{id}
 GET /health
 ```
 
-### Index Riksarkivet Data
+### Harvest Riksarkivet Data via OAI-PMH
 
+This API is designed to work with metadata harvested from Riksarkivet's OAI-PMH service.
+
+**OAI-PMH Endpoint**: `https://oai-pmh.riksarkivet.se/OAI`
+
+For harvesting and integration details, see:
+- 📖 **[OAI-PMH Integration Guide](docs/OAI-PMH-INTEGRATION.md)**
+- 🔧 **[Riksarkivet Dataplattform](https://github.com/Riksarkivet/dataplattform)**
+- 📚 **[Official OAI-PMH Wiki](https://github.com/Riksarkivet/dataplattform/wiki/OAI-PMH)**
+
+Quick example - List available collections:
 ```bash
-# Run the indexing script
-./scripts/index-riksarkivet-data.sh
-
-# Or with custom API URL
-API_URL=http://your-api:5000 ./scripts/index-riksarkivet-data.sh
+curl "https://oai-pmh.riksarkivet.se/OAI?verb=ListAllAuth"
 ```
+
+Harvest records:
+```bash
+curl "https://oai-pmh.riksarkivet.se/OAI?verb=ListRecords&metadataPrefix=oai_ra_ead" > records.xml
+```
+
+Then parse the EAD XML and POST to this API's `/api/search/index` endpoint.
 
 ## 🧪 Testing
 
@@ -344,9 +357,22 @@ spec:
 
 ## 📚 Data Source
 
-This API is designed to index and search metadata from:
-**Riksarkivet Archive Metadata**
-https://sok.riksarkivet.se/data-api/nedladdningsbara-datamangder/arkivmetadata/
+This API is designed to index and search metadata harvested from **Riksarkivet's OAI-PMH service**.
+
+### Riksarkivet OAI-PMH
+
+- **Endpoint**: `https://oai-pmh.riksarkivet.se/OAI`
+- **Documentation**: https://github.com/Riksarkivet/dataplattform/wiki/OAI-PMH
+- **Metadata Formats**: `oai_ape_ead` (Archives Portal Europe), `oai_ra_ead` (Riksarkivet EAD)
+- **License**: CC0 1.0 Universal
+
+### Integration
+
+See [OAI-PMH Integration Guide](docs/OAI-PMH-INTEGRATION.md) for detailed instructions on:
+- Harvesting metadata from Riksarkivet
+- Parsing EAD XML format
+- Indexing into this search API
+- Using existing Riksarkivet tools
 
 ## 🤝 Contributing
 
