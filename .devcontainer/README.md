@@ -54,13 +54,14 @@ dagger call build-container --source=.
 dagger call full-pipeline --source=. --tag=latest
 \`\`\`
 
-### Docker Compose
+### Local Development
 \`\`\`bash
-# Start Solr
-docker-compose up -d solr
+# Use Dagger for everything
+dagger call full-pipeline --source=.
 
-# Start everything
-docker-compose up -d
+# Or start just Solr for local .NET development
+docker run -d -p 8983:8983 solr:9.4 solr-precreate metadata
+cd SearchApi && dotnet run
 \`\`\`
 
 ## 🔍 Accessing Services

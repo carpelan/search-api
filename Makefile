@@ -1,4 +1,4 @@
-.PHONY: help build test run docker-build dagger-init dagger-build dagger-full k8s-deploy clean
+.PHONY: help build test run dagger-init dagger-build dagger-full k8s-deploy clean
 
 # Variables
 IMAGE_NAME ?= search-api
@@ -40,17 +40,9 @@ format-check: ## Check code formatting
 security-scan: ## Scan for vulnerable dependencies
 	dotnet list SearchApi/SearchApi.csproj package --vulnerable --include-transitive
 
-docker-build: ## Build Docker image
-	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
-
-docker-run: ## Run Docker container locally
-	docker run -p 8080:8080 --name search-api $(IMAGE_NAME):$(IMAGE_TAG)
-
-docker-compose-up: ## Start services with Docker Compose
-	docker-compose up -d
-
-docker-compose-down: ## Stop services with Docker Compose
-	docker-compose down
+# All containerization is handled by Dagger
+# No need for separate docker-build, docker-compose, etc.
+# Use dagger-* targets instead
 
 dagger-init: ## Initialize Dagger module
 	cd .dagger && dagger mod init --sdk=go --source=.
@@ -122,5 +114,7 @@ all: clean restore build test ## Run clean, restore, build, and test
 ci: format-check security-scan build test ## Run CI pipeline locally
 
 dev: ## Start development environment
-	docker-compose up -d solr
+	@echo "Starting Solr container for local development..."
+	@docker run -d --name search-api-solr -p 8983:8983 solr:9.4 solr-precreate metadata || echo "Solr already running"
+	@echo "Starting API with hot reload..."
 	cd SearchApi && dotnet watch run

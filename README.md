@@ -53,9 +53,8 @@ The pipeline demonstrates these practices on a real C# application:
 
 ### Prerequisites
 
-- [Dagger](https://docs.dagger.io/install) installed
-- Docker or Podman
-- .NET 8.0 SDK (for local development)
+- [Dagger](https://docs.dagger.io/install) installed (includes Docker/Podman engine)
+- .NET 8.0 SDK (optional, for local development outside Dagger)
 
 ### Run the Full Pipeline
 
@@ -232,35 +231,36 @@ SOLR_URL=http://solr:8983/solr/metadata \
 dotnet test SearchApi.IntegrationTests/SearchApi.IntegrationTests.csproj
 ```
 
-## 🐳 Docker Deployment
+## 🚀 Local Development with Dagger
 
-### Build Locally
+All containerization is handled by Dagger. No need for separate Dockerfiles or docker-compose!
+
+### Build and Run with Dagger
 
 ```bash
-docker build -t search-api:latest .
+# Build the application
+dagger call build --source=.
+
+# Build container image
+dagger call build-container --source=.
+
+# Run full pipeline locally (includes Solr + API in K3s)
+dagger call full-pipeline --source=.
 ```
 
-### Run with Docker Compose
+### Run API Locally (Outside Dagger)
+
+If you want to run the .NET API directly for development:
 
 ```bash
-version: '3.8'
-services:
-  solr:
-    image: solr:9.4
-    ports:
-      - "8983:8983"
-    command:
-      - solr-precreate
-      - metadata
+# Start Solr using Dagger
+dagger call deploy-solr --k8s-manifests=k8s --cluster=$(dagger call setup-k3s)
 
-  search-api:
-    image: search-api:latest
-    ports:
-      - "8080:8080"
-    environment:
-      - Solr__Url=http://solr:8983/solr/metadata
-    depends_on:
-      - solr
+# Or use a simple Solr container
+docker run -p 8983:8983 solr:9.4 solr-precreate metadata
+
+# Run the API
+cd SearchApi && dotnet run
 ```
 
 ## ☸️ Kubernetes Deployment

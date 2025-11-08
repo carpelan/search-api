@@ -141,11 +141,17 @@ Everything works in the browser!
 
 ### Local Development
 
-```bash
-# Start services
-docker-compose up -d
+All development is done through Dagger:
 
-# Run the API
+```bash
+# Build and test
+dagger call build --source=.
+
+# Run full pipeline (includes K3s cluster with Solr + API)
+dagger call full-pipeline --source=.
+
+# For .NET development without Dagger, start Solr manually:
+docker run -d -p 8983:8983 solr:9.4 solr-precreate metadata
 cd SearchApi && dotnet run
 
 # Access Swagger UI
