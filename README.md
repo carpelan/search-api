@@ -104,22 +104,38 @@ dagger call run-integration-tests \
   --cluster=$(dagger call setup-k3s)
 ```
 
-## 📋 CI/CD Pipeline Steps
+## 📋 Understanding This Demo
 
-The full pipeline executes the following steps:
+**Important**: This repository is a **Dagger CI/CD demonstration**, not primarily a search API project.
 
-1. **Build & Unit Test** - Compile C# code and run unit tests
-2. **Static Analysis** - Code formatting and quality verification
-3. **Security Dependency Scan** - Check for vulnerable packages
-4. **SBOM Generation** - Create Software Bill of Materials
-5. **Container Build** - Multi-stage Docker build
-6. **Container Security Scan** - Trivy vulnerability scanning
-7. **Local Registry Push** - Push to test registry
-8. **K3s Cluster Setup** - Provision local Kubernetes cluster
-9. **Solr Deployment** - Deploy and configure Solr
-10. **API Deployment** - Deploy Search API to K3s
-11. **Integration Tests** - End-to-end testing
-12. **Harbor Registry Push** - Push production image (optional)
+### What This Is
+
+✅ **A showcase of Dagger CI/CD capabilities**
+- How to build portable, reproducible pipelines
+- Security-first development practices
+- Local development parity with CI
+- Multi-platform compatibility (works on any CI system)
+
+✅ **A realistic example application**
+- C# .NET 8.0 API demonstrating real-world complexity
+- Integration with external services (Solr, OAI-PMH)
+- Kubernetes deployment patterns
+- Security hardening practices
+
+### What This Is NOT
+
+❌ A production-ready search solution
+❌ A comprehensive Solr tutorial
+❌ A Riksarkivet integration guide (see their official tools)
+❌ A Kubernetes best practices reference
+
+### For More Details
+
+See **[DAGGER-SHOWCASE.md](docs/DAGGER-SHOWCASE.md)** for:
+- Why we chose Dagger
+- Key patterns demonstrated
+- How to adapt this for your projects
+- Integration with various CI platforms
 
 ## 🔒 Security Features
 
