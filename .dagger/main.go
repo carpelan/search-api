@@ -478,24 +478,27 @@ func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Dire
 	return output, nil
 }
 
-// PushToHarbor pushes the final image to Harbor registry
-func (m *SearchApi) PushToHarbor(
+// PushToRegistry pushes the final image to any container registry
+// Works with Harbor, GHCR, Docker Hub, GitLab Registry, etc.
+func (m *SearchApi) PushToRegistry(
 	ctx context.Context,
 	container *dagger.Container,
-	harborUrl string,
-	harborUsername *dagger.Secret,
-	harborPassword *dagger.Secret,
-	project string,
+	registryUrl string,
+	username *dagger.Secret,
+	password *dagger.Secret,
+	// Image reference (e.g., "myproject/search-api" or "ghcr.io/myorg/search-api")
+	imageRef string,
 	tag string,
 ) (string, error) {
-	imageRef := fmt.Sprintf("%s/%s/search-api:%s", harborUrl, project, tag)
+	// Build full image reference
+	fullImageRef := fmt.Sprintf("%s:%s", imageRef, tag)
 
 	address, err := container.
-		WithRegistryAuth(harborUrl, harborUsername, harborPassword).
-		Publish(ctx, imageRef)
+		WithRegistryAuth(registryUrl, username, password).
+		Publish(ctx, fullImageRef)
 
 	if err != nil {
-		return "", fmt.Errorf("failed to push to Harbor: %w", err)
+		return "", fmt.Errorf("failed to push to registry: %w", err)
 	}
 
 	return address, nil
@@ -507,14 +510,19 @@ func (m *SearchApi) FullPipeline(
 	// +optional
 	// +defaultPath="."
 	source *dagger.Directory,
+	// Registry URL (e.g., "harbor.example.com", "ghcr.io", "docker.io")
 	// +optional
-	harborUrl string,
+	registryUrl string,
+	// Registry username
 	// +optional
-	harborUsername *dagger.Secret,
+	registryUsername *dagger.Secret,
+	// Registry password or token
 	// +optional
-	harborPassword *dagger.Secret,
+	registryPassword *dagger.Secret,
+	// Image reference (e.g., "myproject/search-api", "ghcr.io/myorg/search-api")
 	// +optional
-	harborProject string,
+	imageRef string,
+	// Image tag
 	// +default="latest"
 	tag string,
 ) (string, error) {
@@ -633,16 +641,16 @@ func (m *SearchApi) FullPipeline(
 	}
 	report += "✅ Integration tests passed\n\n"
 
-	// Step 15: Push to Harbor (if credentials provided)
-	if harborUrl != "" && harborUsername != nil && harborPassword != nil && harborProject != "" {
-		report += "🏗️  Step 15: Pushing to Harbor registry...\n"
-		harborImage, err := m.PushToHarbor(ctx, container, harborUrl, harborUsername, harborPassword, harborProject, tag)
+	// Step 15: Push to Container Registry (if credentials provided)
+	if registryUrl != "" && registryUsername != nil && registryPassword != nil && imageRef != "" {
+		report += "🏗️  Step 15: Pushing to container registry...\n"
+		pushedImage, err := m.PushToRegistry(ctx, container, registryUrl, registryUsername, registryPassword, imageRef, tag)
 		if err != nil {
-			return report, fmt.Errorf("failed to push to Harbor: %w", err)
+			return report, fmt.Errorf("failed to push to registry: %w", err)
 		}
-		report += fmt.Sprintf("✅ Pushed to Harbor: %s\n\n", harborImage)
+		report += fmt.Sprintf("✅ Pushed to registry: %s\n\n", pushedImage)
 	} else {
-		report += "⏭️  Step 15: Skipping Harbor push (credentials not provided)\n\n"
+		report += "⏭️  Step 15: Skipping registry push (credentials not provided)\n\n"
 	}
 
 	report += "🎉 Security-First Pipeline Completed Successfully!\n"

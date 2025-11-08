@@ -43,7 +43,7 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 12. ✅ **Solr Deployment** - Database with security context
 13. ✅ **API Deployment** - Non-root, resource-limited containers
 14. ✅ **Integration Tests** - End-to-end validation
-15. ✅ **Harbor Push** - Production registry (optional)
+15. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
 
 ### 🎯 Security Features Implemented
 
@@ -116,12 +116,37 @@ This complexity showcases where security scanning fits in a realistic CI/CD pipe
 # Run the complete CI/CD pipeline (source defaults to current directory)
 dagger call full-pipeline
 
-# With Harbor registry push
+# With container registry push (works with any registry)
+# Example 1: Harbor
 dagger call full-pipeline \
-  --harbor-url=harbor.example.com \
-  --harbor-username=env:HARBOR_USERNAME \
-  --harbor-password=env:HARBOR_PASSWORD \
-  --harbor-project=search-api \
+  --registry-url=harbor.example.com \
+  --registry-username=env:REGISTRY_USER \
+  --registry-password=env:REGISTRY_PASSWORD \
+  --image-ref=harbor.example.com/myproject/search-api \
+  --tag=v1.0.0
+
+# Example 2: GitHub Container Registry (GHCR)
+dagger call full-pipeline \
+  --registry-url=ghcr.io \
+  --registry-username=env:GITHUB_USER \
+  --registry-password=env:GITHUB_TOKEN \
+  --image-ref=ghcr.io/myorg/search-api \
+  --tag=v1.0.0
+
+# Example 3: Docker Hub
+dagger call full-pipeline \
+  --registry-url=docker.io \
+  --registry-username=env:DOCKER_USER \
+  --registry-password=env:DOCKER_PASSWORD \
+  --image-ref=myusername/search-api \
+  --tag=v1.0.0
+
+# Example 4: GitLab Container Registry
+dagger call full-pipeline \
+  --registry-url=registry.gitlab.com \
+  --registry-username=env:GITLAB_USER \
+  --registry-password=env:GITLAB_TOKEN \
+  --image-ref=registry.gitlab.com/mygroup/myproject/search-api \
   --tag=v1.0.0
 ```
 
@@ -438,7 +463,10 @@ spec:
         - call
         - full-pipeline
         - --source=/workspace
-        - --harbor-url={{workflow.parameters.harbor-url}}
+        - --registry-url={{workflow.parameters.registry-url}}
+        - --registry-username={{workflow.parameters.registry-username}}
+        - --registry-password={{workflow.parameters.registry-password}}
+        - --image-ref={{workflow.parameters.image-ref}}
         - --tag={{workflow.parameters.tag}}
 ```
 
