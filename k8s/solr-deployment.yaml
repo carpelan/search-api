@@ -1,0 +1,140 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: search-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: solr-init
+  namespace: search-system
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+
+    # Wait for Solr to be ready
+    echo "Waiting for Solr to start..."
+    until curl -s http://localhost:8983/solr/ > /dev/null; do
+      sleep 2
+    done
+
+    echo "Solr is up, creating core..."
+
+    # Create core if it doesn't exist
+    if ! curl -s "http://localhost:8983/solr/admin/cores?action=STATUS&core=metadata" | grep -q '"name":"metadata"'; then
+      curl "http://localhost:8983/solr/admin/cores?action=CREATE&name=metadata&configSet=_default"
+      echo "Core 'metadata' created successfully"
+    else
+      echo "Core 'metadata' already exists"
+    fi
+
+    # Configure schema
+    echo "Configuring schema..."
+
+    # Add fields for metadata
+    curl -X POST -H 'Content-type:application/json' --data-binary '{
+      "add-field": [
+        {"name":"title", "type":"text_general", "stored":true, "indexed":true},
+        {"name":"description", "type":"text_general", "stored":true, "indexed":true},
+        {"name":"author", "type":"string", "stored":true, "indexed":true},
+        {"name":"created_date", "type":"pdate", "stored":true, "indexed":true},
+        {"name":"modified_date", "type":"pdate", "stored":true, "indexed":true},
+        {"name":"tags", "type":"strings", "stored":true, "indexed":true, "multiValued":true},
+        {"name":"content_type", "type":"string", "stored":true, "indexed":true},
+        {"name":"file_size", "type":"plong", "stored":true, "indexed":true},
+        {"name":"full_text", "type":"text_general", "stored":true, "indexed":true}
+      ]
+    }' http://localhost:8983/solr/metadata/schema || true
+
+    echo "Schema configured successfully"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr
+  namespace: search-system
+spec:
+  selector:
+    app: solr
+  ports:
+    - name: http
+      port: 8983
+      targetPort: 8983
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solr
+  namespace: search-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: solr
+  template:
+    metadata:
+      labels:
+        app: solr
+    spec:
+      initContainers:
+        - name: init-solr
+          image: solr:9.4
+          command: ["/scripts/init.sh"]
+          volumeMounts:
+            - name: init-script
+              mountPath: /scripts
+            - name: solr-data
+              mountPath: /var/solr
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    solr start -force
+                    /scripts/init.sh
+                    solr stop -force
+      containers:
+        - name: solr
+          image: solr:9.4
+          ports:
+            - containerPort: 8983
+              name: http
+          env:
+            - name: SOLR_HEAP
+              value: "512m"
+            - name: SOLR_JAVA_MEM
+              value: "-Xms512m -Xmx512m"
+          volumeMounts:
+            - name: solr-data
+              mountPath: /var/solr
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /solr/admin/info/system
+              port: 8983
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /solr/admin/info/system
+              port: 8983
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: init-script
+          configMap:
+            name: solr-init
+            defaultMode: 0755
+        - name: solr-data
+          emptyDir: {}

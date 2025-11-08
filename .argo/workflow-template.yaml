@@ -1,0 +1,163 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: search-api-ci-pipeline
+  namespace: argo
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+      - name: repo-url
+        value: "https://github.com/your-org/search-api"
+      - name: branch
+        value: "main"
+      - name: harbor-url
+        value: "harbor.your-domain.com"
+      - name: harbor-project
+        value: "search-api"
+      - name: image-tag
+        value: "{{workflow.creationTimestamp.Y}}{{workflow.creationTimestamp.m}}{{workflow.creationTimestamp.d}}-{{workflow.uid}}"
+
+  volumeClaimTemplates:
+    - metadata:
+        name: work
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+
+  templates:
+    - name: main
+      steps:
+        - - name: checkout
+            template: git-clone
+
+        - - name: dagger-pipeline
+            template: run-dagger-pipeline
+
+        - - name: notify-success
+            template: notify
+            arguments:
+              parameters:
+                - name: status
+                  value: "SUCCESS"
+
+    - name: git-clone
+      inputs:
+        parameters:
+          - name: repo-url
+            value: "{{workflow.parameters.repo-url}}"
+          - name: branch
+            value: "{{workflow.parameters.branch}}"
+      container:
+        image: alpine/git:latest
+        command: [sh, -c]
+        args:
+          - |
+            git clone --depth 1 --branch {{inputs.parameters.branch}} {{inputs.parameters.repo-url}} /work/source
+        volumeMounts:
+          - name: work
+            mountPath: /work
+
+    - name: run-dagger-pipeline
+      inputs:
+        parameters:
+          - name: harbor-url
+            value: "{{workflow.parameters.harbor-url}}"
+          - name: harbor-project
+            value: "{{workflow.parameters.harbor-project}}"
+          - name: image-tag
+            value: "{{workflow.parameters.image-tag}}"
+      container:
+        image: registry.dagger.io/engine:v0.9.5
+        command: [sh, -c]
+        args:
+          - |
+            cd /work/source
+
+            # Run the full Dagger pipeline
+            dagger call full-pipeline \
+              --source=. \
+              --harbor-url={{inputs.parameters.harbor-url}} \
+              --harbor-username=env:HARBOR_USERNAME \
+              --harbor-password=env:HARBOR_PASSWORD \
+              --harbor-project={{inputs.parameters.harbor-project}} \
+              --tag={{inputs.parameters.image-tag}}
+        env:
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: harbor-credentials
+                key: username
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: harbor-credentials
+                key: password
+          - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
+            value: "unix:///var/run/buildkit/buildkitd.sock"
+        volumeMounts:
+          - name: work
+            mountPath: /work
+          - name: dagger-socket
+            mountPath: /var/run/buildkit
+        securityContext:
+          privileged: true
+
+    - name: notify
+      inputs:
+        parameters:
+          - name: status
+      container:
+        image: curlimages/curl:latest
+        command: [sh, -c]
+        args:
+          - |
+            # Send notification (example with webhook)
+            curl -X POST $WEBHOOK_URL \
+              -H "Content-Type: application/json" \
+              -d '{
+                "status": "{{inputs.parameters.status}}",
+                "workflow": "{{workflow.name}}",
+                "image_tag": "{{workflow.parameters.image-tag}}"
+              }'
+        env:
+          - name: WEBHOOK_URL
+            valueFrom:
+              secretKeyRef:
+                name: webhook-config
+                key: url
+                optional: true
+
+  onExit: cleanup
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-credentials
+  namespace: argo
+type: Opaque
+stringData:
+  username: "admin"
+  password: "CHANGE_ME"
+  # In production, use Infisical or external secrets operator:
+  # apiVersion: external-secrets.io/v1beta1
+  # kind: ExternalSecret
+  # metadata:
+  #   name: harbor-credentials
+  # spec:
+  #   refreshInterval: 1h
+  #   secretStoreRef:
+  #     name: infisical-secret-store
+  #     kind: SecretStore
+  #   target:
+  #     name: harbor-credentials
+  #   data:
+  #     - secretKey: username
+  #       remoteRef:
+  #         key: harbor-username
+  #     - secretKey: password
+  #       remoteRef:
+  #         key: harbor-password

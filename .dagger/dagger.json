@@ -1,0 +1,5 @@
+{
+  "name": "search-api",
+  "sdk": "go",
+  "source": "."
+}
