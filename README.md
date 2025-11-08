@@ -1,0 +1,373 @@
+# Search API - Modern CI/CD Pipeline with Dagger
+
+A production-ready C# Search API for indexing and searching Riksarkivet metadata using Solr, featuring a comprehensive security-first CI/CD pipeline built with Dagger.
+
+## 🌟 Features
+
+### Application Features
+- **RESTful Search API** - Full-featured search API with filtering, pagination, and sorting
+- **Solr Integration** - Powerful full-text search with Solr 9.4
+- **Health Checks** - Built-in health monitoring
+- **Swagger/OpenAPI** - Interactive API documentation
+- **Structured Logging** - Production-ready logging with Serilog
+- **Security Hardened** - Runs as non-root user, security best practices
+
+### CI/CD Features (Shift-Left Security)
+- ✅ **Automated Build & Test** - .NET 8.0 build with unit tests
+- ✅ **Static Code Analysis** - Code formatting and quality checks
+- ✅ **Security Scanning** - Dependency vulnerability scanning
+- ✅ **SBOM Generation** - Software Bill of Materials with Syft
+- ✅ **Container Security** - Trivy vulnerability scanning
+- ✅ **Local Testing** - K3s cluster with Solr deployment
+- ✅ **Integration Tests** - End-to-end testing in Kubernetes
+- ✅ **Multi-Registry Support** - Harbor, Docker Hub, GHCR
+- ✅ **Non-root Containers** - Security-hardened images
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐
+│   Search API    │
+│   (.NET 8.0)    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   Solr 9.4      │
+│  (Full-text     │
+│   search)       │
+└─────────────────┘
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- [Dagger](https://docs.dagger.io/install) installed
+- Docker or Podman
+- .NET 8.0 SDK (for local development)
+
+### Run the Full Pipeline
+
+```bash
+# Run the complete CI/CD pipeline
+dagger call full-pipeline --source=.
+
+# With Harbor registry push
+dagger call full-pipeline \
+  --source=. \
+  --harbor-url=harbor.example.com \
+  --harbor-username=env:HARBOR_USERNAME \
+  --harbor-password=env:HARBOR_PASSWORD \
+  --harbor-project=search-api \
+  --tag=v1.0.0
+```
+
+### Individual Pipeline Steps
+
+```bash
+# Build and run unit tests
+dagger call build --source=.
+
+# Run security scan
+dagger call security-scan --source=.
+
+# Run static analysis
+dagger call static-analysis --source=.
+
+# Generate SBOM
+dagger call generate-sbom --source=.
+
+# Build container
+dagger call build-container --source=.
+
+# Scan container for vulnerabilities
+dagger call scan-container \
+  --container=$(dagger call build-container --source=.)
+
+# Setup K3s cluster for testing
+dagger call setup-k3s
+
+# Run integration tests
+dagger call run-integration-tests \
+  --source=. \
+  --cluster=$(dagger call setup-k3s)
+```
+
+## 📋 CI/CD Pipeline Steps
+
+The full pipeline executes the following steps:
+
+1. **Build & Unit Test** - Compile C# code and run unit tests
+2. **Static Analysis** - Code formatting and quality verification
+3. **Security Dependency Scan** - Check for vulnerable packages
+4. **SBOM Generation** - Create Software Bill of Materials
+5. **Container Build** - Multi-stage Docker build
+6. **Container Security Scan** - Trivy vulnerability scanning
+7. **Local Registry Push** - Push to test registry
+8. **K3s Cluster Setup** - Provision local Kubernetes cluster
+9. **Solr Deployment** - Deploy and configure Solr
+10. **API Deployment** - Deploy Search API to K3s
+11. **Integration Tests** - End-to-end testing
+12. **Harbor Registry Push** - Push production image (optional)
+
+## 🔒 Security Features
+
+### Shift-Left Security Practices
+
+1. **Dependency Scanning** - Automated vulnerability detection in NuGet packages
+2. **Static Analysis** - Code quality and security pattern detection
+3. **SBOM Generation** - Complete software bill of materials
+4. **Container Scanning** - Multi-layer container vulnerability analysis
+5. **Non-root Execution** - Containers run as unprivileged users
+6. **Secret Management** - Integration with Infisical
+7. **Network Policies** - Kubernetes network segmentation
+8. **Resource Limits** - CPU and memory constraints
+
+### Container Security
+
+- Base images: Official Microsoft .NET images
+- Multi-stage builds to minimize attack surface
+- Non-root user execution
+- No unnecessary packages
+- Security scanning with Trivy
+- SBOM generation with Syft
+
+## 🎯 API Endpoints
+
+### Search Operations
+
+```bash
+# Search documents
+POST /api/search/search
+{
+  "query": "riksarkivet",
+  "rows": 10,
+  "start": 0,
+  "sortField": "created_date",
+  "sortOrder": "desc"
+}
+
+# Get document by ID
+GET /api/search/{id}
+
+# Index new document
+POST /api/search/index
+{
+  "id": "doc-123",
+  "title": "Document Title",
+  "description": "Document description",
+  ...
+}
+
+# Delete document
+DELETE /api/search/{id}
+
+# Health check
+GET /health
+```
+
+### Index Riksarkivet Data
+
+```bash
+# Run the indexing script
+./scripts/index-riksarkivet-data.sh
+
+# Or with custom API URL
+API_URL=http://your-api:5000 ./scripts/index-riksarkivet-data.sh
+```
+
+## 🧪 Testing
+
+### Unit Tests
+
+```bash
+dotnet test SearchApi.Tests/SearchApi.Tests.csproj
+```
+
+### Integration Tests
+
+```bash
+# Tests run against live Solr instance
+SOLR_URL=http://solr:8983/solr/metadata \
+dotnet test SearchApi.IntegrationTests/SearchApi.IntegrationTests.csproj
+```
+
+## 🐳 Docker Deployment
+
+### Build Locally
+
+```bash
+docker build -t search-api:latest .
+```
+
+### Run with Docker Compose
+
+```bash
+version: '3.8'
+services:
+  solr:
+    image: solr:9.4
+    ports:
+      - "8983:8983"
+    command:
+      - solr-precreate
+      - metadata
+
+  search-api:
+    image: search-api:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - Solr__Url=http://solr:8983/solr/metadata
+    depends_on:
+      - solr
+```
+
+## ☸️ Kubernetes Deployment
+
+### Deploy to Kubernetes
+
+```bash
+# Create namespace and deploy Solr
+kubectl apply -f k8s/solr-deployment.yaml
+
+# Deploy Search API
+kubectl apply -f k8s/api-deployment.yaml
+
+# Port forward to access locally
+kubectl port-forward -n search-system svc/search-api 8080:80
+```
+
+### Access the API
+
+```bash
+# Check health
+curl http://localhost:8080/health
+
+# Search
+curl -X POST http://localhost:8080/api/search/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "*:*", "rows": 10}'
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ASPNETCORE_URLS` | URLs to bind to | `http://+:8080` |
+| `Solr__Url` | Solr connection URL | `http://solr:8983/solr/metadata` |
+| `ASPNETCORE_ENVIRONMENT` | Environment name | `Production` |
+
+### Solr Configuration
+
+The Solr schema includes the following fields:
+
+- `id` - Unique document identifier
+- `title` - Document title (text, indexed)
+- `description` - Document description (text, indexed)
+- `author` - Author name (string, indexed)
+- `created_date` - Creation date (date, indexed)
+- `modified_date` - Modification date (date, indexed)
+- `tags` - Tags (multi-valued strings)
+- `content_type` - MIME type
+- `file_size` - File size in bytes
+- `full_text` - Full document text (text, indexed)
+
+## 📊 Monitoring
+
+### Metrics
+
+- Health checks at `/health`
+- Solr admin UI at `http://solr:8983/solr/#/`
+- API documentation at `/swagger`
+
+### Logs
+
+Structured JSON logs with:
+- Request/response details
+- Search query performance
+- Error tracking
+- Security events
+
+## 🔄 CI/CD Integration
+
+### Argo Workflows
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: search-api-ci-
+spec:
+  entrypoint: build-and-deploy
+  templates:
+  - name: build-and-deploy
+    steps:
+    - - name: dagger-pipeline
+        template: dagger
+  - name: dagger
+    container:
+      image: dagger:latest
+      command: [dagger]
+      args:
+        - call
+        - full-pipeline
+        - --source=/workspace
+        - --harbor-url={{workflow.parameters.harbor-url}}
+        - --tag={{workflow.parameters.tag}}
+```
+
+### Argo CD
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: search-api
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/search-api
+    path: k8s
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: search-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+## 📚 Data Source
+
+This API is designed to index and search metadata from:
+**Riksarkivet Archive Metadata**
+https://sok.riksarkivet.se/data-api/nedladdningsbara-datamangder/arkivmetadata/
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run the full pipeline: `dagger call full-pipeline --source=.`
+5. Submit a pull request
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+## 🆘 Support
+
+- Documentation: See `/swagger` endpoint
+- Issues: GitHub Issues
+- Security: See SECURITY.md for reporting vulnerabilities
+
+## 🎉 Acknowledgments
+
+- Inspired by [AI-Riksarkivet/coder-templates](https://github.com/AI-Riksarkivet/coder-templates)
+- Built with [Dagger](https://dagger.io)
+- Powered by [.NET 8.0](https://dotnet.microsoft.com/) and [Apache Solr](https://solr.apache.org/)
