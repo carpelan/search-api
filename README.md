@@ -1,27 +1,37 @@
-# Search API - Modern CI/CD Pipeline with Dagger
+# Dagger CI/CD Pipeline Demonstration
 
-A production-ready C# Search API for indexing and searching Riksarkivet metadata using Solr, featuring a comprehensive security-first CI/CD pipeline built with Dagger.
+**A comprehensive showcase of modern CI/CD practices using Dagger**
 
-## 🌟 Features
+This repository demonstrates how to build a complete, security-first CI/CD pipeline using [Dagger](https://dagger.io) with a real-world C# application. The example application is a Search API for Riksarkivet metadata, but the **primary focus is demonstrating Dagger's capabilities** for building reproducible, containerized CI/CD workflows.
 
-### Application Features
-- **RESTful Search API** - Full-featured search API with filtering, pagination, and sorting
-- **Solr Integration** - Powerful full-text search with Solr 9.4
-- **Health Checks** - Built-in health monitoring
-- **Swagger/OpenAPI** - Interactive API documentation
-- **Structured Logging** - Production-ready logging with Serilog
-- **Security Hardened** - Runs as non-root user, security best practices
+> **Note**: This is a proof-of-concept demonstrating CI/CD patterns with Dagger. The Search API serves as a realistic example application to showcase the pipeline, not as a production search solution.
 
-### CI/CD Features (Shift-Left Security)
-- ✅ **Automated Build & Test** - .NET 8.0 build with unit tests
-- ✅ **Static Code Analysis** - Code formatting and quality checks
-- ✅ **Security Scanning** - Dependency vulnerability scanning
-- ✅ **SBOM Generation** - Software Bill of Materials with Syft
-- ✅ **Container Security** - Trivy vulnerability scanning
-- ✅ **Local Testing** - K3s cluster with Solr deployment
-- ✅ **Integration Tests** - End-to-end testing in Kubernetes
-- ✅ **Multi-Registry Support** - Harbor, Docker Hub, GHCR
-- ✅ **Non-root Containers** - Security-hardened images
+## 🌟 What This Demonstrates
+
+### Dagger CI/CD Pipeline Features (Primary Focus)
+
+This project showcases a **12-step CI/CD pipeline** built entirely with Dagger:
+1. ✅ **Automated Build & Test** - .NET 8.0 compilation and unit tests
+2. ✅ **Static Code Analysis** - Code formatting and quality checks with dotnet format
+3. ✅ **Security Dependency Scanning** - Vulnerable package detection
+4. ✅ **SBOM Generation** - Software Bill of Materials using Syft
+5. ✅ **Multi-Stage Container Build** - Optimized Docker images
+6. ✅ **Container Security Scanning** - Trivy vulnerability analysis
+7. ✅ **Local Registry Push** - Testing registry workflow
+8. ✅ **K3s Cluster Provisioning** - Ephemeral Kubernetes cluster in Dagger
+9. ✅ **Service Deployment** - Automated Solr deployment to K3s
+10. ✅ **Application Deployment** - API deployment with health checks
+11. ✅ **Integration Testing** - End-to-end tests in live cluster
+12. ✅ **Production Registry Push** - Multi-registry support (Harbor, GHCR, Docker Hub)
+
+### Example Application (Search API)
+
+The pipeline demonstrates these practices on a real C# application:
+- **RESTful API** with Swagger/OpenAPI
+- **Solr Integration** for full-text search
+- **OAI-PMH Integration** for metadata harvesting (Riksarkivet)
+- **Security-hardened containers** (non-root, minimal attack surface)
+- **Structured logging** with Serilog
 
 ## 🏗️ Architecture
 
