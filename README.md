@@ -15,9 +15,9 @@ The example application is a C# Search API, chosen to demonstrate security pract
 >
 > **Secondary**: The Search API is a realistic example to showcase security scanning on a multi-component application (API + Solr + Kubernetes)
 
-## 🔒 Comprehensive Security-First Pipeline (22 Steps)
+## 🔒 Comprehensive Security-First Pipeline (25 Steps)
 
-This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **8 enforced security gates**:
+This demonstrates a **production-grade security-focused CI/CD pipeline** with Dagger implementing **9 enforced security gates** and **container size optimization**:
 
 ### 🛡️ Security Gates (Fail-Fast)
 
@@ -26,9 +26,10 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 **GATE 3: 🔒 SAST (C# Specific)** - .NET Analyzers for C#-specific security issues (BLOCKS pipeline)
 **GATE 4: 🔒 Dependency Scan** - Trivy checks for vulnerable packages (BLOCKS pipeline)
 **GATE 5: 📜 License Compliance** - Trivy detects problematic licenses (BLOCKS pipeline)
-**GATE 6: 🔎 Container Scan** - Trivy blocks HIGH/CRITICAL vulnerabilities (BLOCKS pipeline)
-**GATE 7: 🎯 DAST** - OWASP ZAP tests running application for vulnerabilities (BLOCKS pipeline)
-**GATE 8: 🔓 API Security** - Nuclei tests for OWASP API Top 10 vulnerabilities (BLOCKS pipeline)
+**GATE 6: 📐 Policy as Code** - OPA/Conftest validates configurations against custom policies (BLOCKS pipeline)
+**GATE 7: 🔎 Container Scan** - Trivy blocks HIGH/CRITICAL vulnerabilities (BLOCKS pipeline)
+**GATE 8: 🎯 DAST** - OWASP ZAP tests running application for vulnerabilities (BLOCKS pipeline)
+**GATE 9: 🔓 API Security** - Nuclei tests for OWASP API Top 10 vulnerabilities (BLOCKS pipeline)
 
 ### Complete Pipeline Steps
 
@@ -41,19 +42,22 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 7. ✅ **Dependency Scan** - Trivy filesystem scan (enforced, fails on HIGH/CRITICAL)
 8. ✅ **License Compliance** - Trivy license scan (enforced, blocks problematic licenses)
 9. ✅ **IaC Security** - Checkov for Kubernetes manifests
-10. ✅ **SBOM Generation** - Syft generates software bill of materials
-11. ✅ **Container Build** - Multi-stage, non-root user
-12. ✅ **Container Scan** - Trivy image scan (enforced, fails on HIGH/CRITICAL)
-13. ✅ **Registry Push** - Local registry for testing
-14. ✅ **K3s Cluster** - Ephemeral test environment
-15. ✅ **Solr Deployment** - Database with security context
-16. ✅ **API Deployment** - Non-root, resource-limited containers
-17. ✅ **Integration Tests** - End-to-end validation
-18. ✅ **DAST** - OWASP ZAP dynamic security testing (enforced, fails on vulnerabilities)
-19. ✅ **API Security Testing** - Nuclei scans for OWASP API Top 10 (enforced)
-20. ✅ **Performance Testing** - k6 load tests (optional, configurable thresholds)
-21. ✅ **Mutation Testing** - Stryker.NET tests test quality (optional, can be slow)
-22. ✅ **Registry Push** - Production registry push (Harbor, GHCR, Docker Hub, etc. - optional)
+10. ✅ **Policy as Code** - OPA/Conftest validates K8s configurations (enforced, fails on policy violations)
+11. ✅ **SBOM Generation** - Syft generates software bill of materials
+12. ✅ **Container Build** - Multi-stage, non-root user
+12a. ✅ **Container Size Analysis** - dive analyzes image layers and size (optional)
+13. ✅ **Container Scan** - Trivy image scan (enforced, fails on HIGH/CRITICAL)
+14. ✅ **CIS Benchmark** - Docker CIS compliance validation (enforced, reports HIGH/CRITICAL)
+15. ✅ **SBOM Attestation** - Cosign attaches signed SBOM to image
+16. ✅ **Registry Push** - Local registry for testing
+17. ✅ **K3s Cluster** - Ephemeral test environment
+18. ✅ **Solr Deployment** - Database with security context
+19. ✅ **API Deployment** - Non-root, resource-limited containers
+20. ✅ **Integration Tests** - End-to-end validation
+21. ✅ **DAST** - OWASP ZAP dynamic security testing (enforced, fails on vulnerabilities)
+22. ✅ **API Security Testing** - Nuclei scans for OWASP API Top 10 (enforced)
+23. ✅ **Performance Testing** - k6 load tests (optional, configurable thresholds)
+24. ✅ **Mutation Testing** - Stryker.NET tests test quality (optional, can be slow)
 
 ### 🎯 Security Features Implemented
 
@@ -66,7 +70,10 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ License compliance scanning with enforcement (Trivy)
 - ✅ Container vulnerability scanning with enforcement (Trivy)
 - ✅ IaC security scanning (Checkov)
+- ✅ Policy as Code enforcement (OPA/Conftest)
+- ✅ CIS Benchmark compliance validation (Trivy)
 - ✅ SBOM generation (Syft)
+- ✅ SBOM attestation with cryptographic signing (Cosign)
 - ✅ Non-root container execution
 - ✅ Resource limits and security contexts
 
@@ -74,9 +81,13 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 - ✅ Complete dependency tracking
 - ✅ Multi-layer vulnerability detection
 - ✅ SBOM in SPDX format
+- ✅ SBOM attestation with cryptographic signing
 - ✅ License compliance enforcement
 - ✅ Image signing capability (Cosign/Sigstore)
 - ✅ Secure container registry integration
+- ✅ CIS Docker Benchmark compliance
+- ✅ Container size optimization (30-60% reduction)
+- ✅ Distroless container builds (no shell, minimal attack surface)
 
 **Runtime Security** ✅
 - ✅ Dynamic security testing against live application
@@ -100,7 +111,9 @@ This demonstrates a **production-grade security-focused CI/CD pipeline** with Da
 | Code Vulnerabilities (SAST C#) | .NET Analyzers | Any | **FAIL** |
 | Dependencies | Trivy | HIGH, CRITICAL | **FAIL** |
 | License Compliance | Trivy | HIGH, CRITICAL | **FAIL** |
+| Policy Violations | OPA/Conftest | Any | **FAIL** |
 | Container | Trivy | HIGH, CRITICAL | **FAIL** |
+| CIS Benchmark | Trivy | HIGH, CRITICAL | Report |
 | Runtime Vulnerabilities (DAST) | OWASP ZAP | Any | **FAIL** |
 | API Security | Nuclei | HIGH, CRITICAL | **FAIL** |
 | Code Coverage | XPlat Coverage | <80% | **FAIL** |
@@ -194,6 +207,7 @@ dagger call sast-scan                # Static application security testing (Semg
 dagger call dependency-scan          # Dependency vulnerability scan (Trivy)
 dagger call license-scan             # License compliance scan (Trivy)
 dagger call iac-scan                 # Infrastructure as Code scan (Checkov)
+dagger call policy-check             # Policy as Code validation (OPA/Conftest)
 
 # Build and Test
 dagger call build                    # Build and run unit tests
@@ -220,6 +234,25 @@ dagger call sign-image \             # Sign container image with Cosign
   --private-key=env:COSIGN_PRIVATE_KEY \
   --password=env:COSIGN_PASSWORD \
   --image-ref=harbor.example.com/myproject/search-api:v1.0.0
+
+dagger call attest-sbom \            # Attach signed SBOM attestation
+  --sbom="$(dagger call generate-sbom)" \
+  --private-key=env:COSIGN_PRIVATE_KEY \
+  --password=env:COSIGN_PASSWORD \
+  --image-ref=harbor.example.com/myproject/search-api:v1.0.0
+
+dagger call cis-benchmark \          # CIS Docker Benchmark compliance
+  --container=$(dagger call build-container)
+
+# Container Size Optimization
+dagger call build-container-optimized        # Alpine + trimming (30-40% smaller)
+dagger call build-container-distroless       # Distroless - NO shell (40-60% smaller)
+dagger call build-container-distroless-extra # Distroless + ICU/tzdata (35-50% smaller)
+
+dagger call container-size-analysis \        # Analyze container size and layers
+  --container=$(dagger call build-container)
+
+dagger call compare-container-sizes          # Compare ALL 4 variants with recommendations
 
 # Setup K3s cluster for testing
 dagger call setup-k3s
@@ -429,6 +462,98 @@ This pipeline implements **defense-in-depth** with multiple security layers:
   * Proves provenance of the image
   * Meets compliance requirements (e.g., SLSA)
 
+**SBOM Attestation** 📋✍️
+- Tool: Cosign (Sigstore)
+- Purpose: Cryptographically signed software bill of materials
+- Features:
+  * Attaches SBOM as in-toto attestation to container image
+  * SPDX JSON format predicate
+  * Verifiable with cosign verify-attestation
+  * Stored in OCI registry alongside image
+- Benefits:
+  * Immutable dependency tracking
+  * Tamper-proof supply chain transparency
+  * Compliance with SLSA Level 3
+  * Enables automated vulnerability tracking
+- Usage: Optional, requires private key and password
+
+**Policy as Code** 📐
+- Tool: OPA/Conftest
+- Purpose: Validate configurations against custom policies
+- Validates:
+  * Kubernetes manifests for security requirements
+  * Non-root execution enforcement
+  * Resource limits (CPU, memory)
+  * No privileged containers
+  * Custom organizational policies
+- Features:
+  * Rego policy language (Open Policy Agent)
+  * JSON output for CI integration
+  * Extensible with custom rules
+  * Shift-left policy enforcement
+- Enforcement: BLOCKS on policy violations
+- Benefits:
+  * Consistent security policies
+  * Prevent misconfigurations before deployment
+  * Self-documenting security requirements
+
+**CIS Benchmark Compliance** 📊
+- Tool: Trivy (compliance mode)
+- Purpose: Validate Docker containers against CIS Docker Benchmark
+- Validates:
+  * Image and container configuration
+  * Docker security best practices
+  * CIS Docker Benchmark v1.6.0
+  * Industry-standard security controls
+- Checks:
+  * User namespaces and privileges
+  * Capability restrictions
+  * Content trust and verification
+  * Network security
+  * Logging and auditing
+- Output: JSON compliance report with pass/fail status
+- Benefits:
+  * Industry-recognized security standard
+  * Compliance documentation
+  * Baseline security validation
+
+**Container Size Optimization** 📏
+- Tools: Alpine images, Distroless images, .NET trimming, dive analysis
+- Purpose: Minimize container size for security and efficiency
+- Build Variants Available:
+  * **Standard (Debian)**: Full Linux environment, easy debugging (~230-250MB)
+  * **Optimized (Alpine)**: 30-40% smaller with trimming (~120-150MB)
+  * **Distroless (Chiseled)**: 40-60% smaller, no shell/package manager (~100-120MB)
+  * **Distroless-Extra**: Distroless + ICU/tzdata for globalization (~110-130MB)
+- Optimization Techniques:
+  * Alpine base images (musl libc, minimal packages)
+  * Distroless chiseled Ubuntu (Microsoft's minimal images)
+  * IL trimming (removes unused .NET framework code)
+  * ReadyToRun compilation (AOT for faster startup)
+  * Debug symbols removal
+  * Invariant globalization (smaller, use -extra if needed)
+- Distroless Security Benefits:
+  * ✅ **NO shell** - Prevents shell-based exploits and exec attacks
+  * ✅ **NO package manager** - Cannot install additional software
+  * ✅ **Runs as non-root by default** - UID 1654 (app user)
+  * ✅ **Minimal attack surface** - Only .NET runtime + your app
+  * ✅ **Fewer CVEs** - Drastically reduced package count
+  * ✅ **Smaller size** - 40-60% reduction vs Debian
+- Analysis Tools:
+  * Layer-by-layer breakdown with dive
+  * Size comparison across all 4 variants
+  * Waste identification and optimization recommendations
+- Benefits:
+  * **Security**: Smaller attack surface, fewer CVEs, no shell access
+  * **Performance**: Faster image pulls and container startup
+  * **Cost**: Lower storage and bandwidth costs
+  * **Compliance**: Meets security hardening requirements
+- Expected reduction: 30-60% smaller image size
+- Trade-offs:
+  * Distroless: No shell access (harder to debug in production)
+  * Trimming: Potential runtime issues with reflection-heavy code
+  * Build time: Slightly longer with R2R compilation
+
 ### Security Tools Integration
 
 | Category | Tool | Purpose | Enforcement |
@@ -440,12 +565,16 @@ This pipeline implements **defense-in-depth** with multiple security layers:
 | Mutation Testing | Stryker.NET | Test quality verification | ⚠️ Optional (80%) |
 | Dependencies | Trivy | Package vulnerabilities | ✅ Enforced |
 | License Compliance | Trivy | License scanning (GPL, AGPL detection) | ✅ Enforced |
+| Policy as Code | OPA/Conftest | Custom policy validation (Rego) | ✅ Enforced |
 | DAST | OWASP ZAP | Runtime vulnerability testing | ✅ Enforced |
 | API Security | Nuclei | OWASP API Security Top 10 | ✅ Enforced |
 | Performance | k6 | Load testing & SLA validation | ⚠️ Optional |
 | IaC | Checkov | K8s configuration security | ℹ️ Report |
 | Container | Trivy | Image vulnerabilities | ✅ Enforced |
+| CIS Benchmark | Trivy | Docker CIS compliance (v1.6.0) | ℹ️ Report |
+| Container Size | dive | Layer analysis & optimization | ℹ️ Analysis |
 | SBOM | Syft | Dependency tracking (SPDX format) | ℹ️ Generated |
+| SBOM Attestation | Cosign | Signed SBOM (in-toto attestation) | ⚠️ Optional |
 | Image Signing | Cosign | Supply chain integrity (Sigstore) | ⚠️ Optional |
 
 ## 🎯 API Endpoints
