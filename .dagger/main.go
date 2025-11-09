@@ -109,6 +109,7 @@ func (m *SearchApi) DependencyScan(
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
+			"trivy",
 			"fs",
 			"--scanners", "vuln",
 			"--severity", "HIGH,CRITICAL",
@@ -928,6 +929,7 @@ func (m *SearchApi) LicenseScan(
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
+			"trivy",
 			"fs",
 			"--scanners", "license",
 			"--severity", "HIGH,CRITICAL",  // Block on problematic licenses

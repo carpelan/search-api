@@ -13,7 +13,7 @@ public class SearchResponse
     /// <summary>
     /// Search results
     /// </summary>
-    public List<MetadataDocument> Results { get; set; } = new();
+    public IReadOnlyList<MetadataDocument> Results { get; set; } = Array.Empty<MetadataDocument>();
 
     /// <summary>
     /// Time taken for the search in milliseconds

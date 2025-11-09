@@ -18,7 +18,7 @@ public class SearchRequest
     /// <summary>
     /// Starting offset for pagination
     /// </summary>
-    public int Start { get; set; } = 0;
+    public int Start { get; set; }
 
     /// <summary>
     /// Field to sort by
@@ -33,5 +33,5 @@ public class SearchRequest
     /// <summary>
     /// Filters to apply
     /// </summary>
-    public Dictionary<string, string> Filters { get; set; } = new();
+    public IDictionary<string, string> Filters { get; } = new Dictionary<string, string>();
 }

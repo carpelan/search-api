@@ -4,6 +4,7 @@ using FluentAssertions;
 using SearchApi.Services;
 using SearchApi.Models;
 using SolrNet;
+using SolrNet.Commands.Parameters;
 using Microsoft.Extensions.Logging;
 
 namespace SearchApi.Tests.Services;
@@ -61,7 +62,7 @@ public class SearchServiceTests
             new MetadataDocument { Id = documentId, Title = "Test" }
         };
 
-        _mockSolr.Setup(s => s.Query(It.Is<string>(q => q.Contains(documentId)), null))
+        _mockSolr.Setup(s => s.Query(It.Is<string>(q => q.Contains(documentId))))
             .Returns(documents);
 
         // Act

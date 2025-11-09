@@ -21,6 +21,8 @@ public class SearchService : ISearchService
 
     public async Task<SearchResponse> SearchAsync(SearchRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         var sw = Stopwatch.StartNew();
 
         try
@@ -29,7 +31,7 @@ public class SearchService : ISearchService
             var options = new QueryOptions
             {
                 Rows = request.Rows,
-                Start = request.Start
+                StartOrCursor = new StartOrCursor.Start(request.Start)
             };
 
             // Add sorting
@@ -45,13 +47,17 @@ public class SearchService : ISearchService
             }
 
             // Add filters
-            foreach (var filter in request.Filters)
+            if (request.Filters.Count > 0)
             {
-                options.AddFilterQuery(new SolrQueryByField(filter.Key, filter.Value));
+                options.FilterQueries = new List<ISolrQuery>();
+                foreach (var filter in request.Filters)
+                {
+                    options.FilterQueries.Add(new SolrQueryByField(filter.Key, filter.Value));
+                }
             }
 
             // Execute search
-            var results = await Task.Run(() => _solr.Query(request.Query, options));
+            var results = await Task.Run(() => _solr.Query(request.Query, options)).ConfigureAwait(false);
 
             sw.Stop();
 
@@ -67,55 +73,71 @@ public class SearchService : ISearchService
                 Rows = request.Rows
             };
         }
-        catch (Exception ex)
+        catch (SolrNet.Exceptions.SolrConnectionException ex)
         {
-            _logger.LogError(ex, "Error executing search query: {Query}", request.Query);
+            _logger.LogError(ex, "Solr connection error executing query: {Query}", request.Query);
+            throw;
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogError(ex, "Invalid query syntax: {Query}", request.Query);
             throw;
         }
     }
 
     public async Task<MetadataDocument?> GetByIdAsync(string id)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+
         try
         {
-            var results = await Task.Run(() => _solr.Query($"id:{id}"));
+            var results = await Task.Run(() => _solr.Query($"id:{id}")).ConfigureAwait(false);
             return results.FirstOrDefault();
         }
-        catch (Exception ex)
+        catch (SolrNet.Exceptions.SolrConnectionException ex)
         {
-            _logger.LogError(ex, "Error retrieving document by ID: {Id}", id);
+            _logger.LogError(ex, "Solr connection error retrieving document by ID: {Id}", id);
             throw;
         }
     }
 
     public async Task<bool> IndexDocumentAsync(MetadataDocument document)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         try
         {
-            await Task.Run(() => _solr.Add(document));
-            await Task.Run(() => _solr.Commit());
+            await Task.Run(() => _solr.Add(document)).ConfigureAwait(false);
+            await Task.Run(() => _solr.Commit()).ConfigureAwait(false);
             _logger.LogInformation("Document indexed successfully: {Id}", document.Id);
             return true;
         }
-        catch (Exception ex)
+        catch (SolrNet.Exceptions.SolrConnectionException ex)
         {
-            _logger.LogError(ex, "Error indexing document: {Id}", document.Id);
+            _logger.LogError(ex, "Solr connection error indexing document: {Id}", document.Id);
+            return false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Invalid operation while indexing document: {Id}", document.Id);
             return false;
         }
     }
 
     public async Task<bool> DeleteDocumentAsync(string id)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+
         try
         {
-            await Task.Run(() => _solr.Delete(id));
-            await Task.Run(() => _solr.Commit());
+            await Task.Run(() => _solr.Delete(id)).ConfigureAwait(false);
+            await Task.Run(() => _solr.Commit()).ConfigureAwait(false);
             _logger.LogInformation("Document deleted successfully: {Id}", id);
             return true;
         }
-        catch (Exception ex)
+        catch (SolrNet.Exceptions.SolrConnectionException ex)
         {
-            _logger.LogError(ex, "Error deleting document: {Id}", id);
+            _logger.LogError(ex, "Solr connection error deleting document: {Id}", id);
             return false;
         }
     }

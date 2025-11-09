@@ -31,15 +31,22 @@ public class SearchController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<SearchResponse>> Search([FromBody] SearchRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         try
         {
-            var results = await _searchService.SearchAsync(request);
+            var results = await _searchService.SearchAsync(request).ConfigureAwait(false);
             return Ok(results);
         }
-        catch (Exception ex)
+        catch (SolrNet.Exceptions.SolrConnectionException ex)
         {
-            _logger.LogError(ex, "Search failed");
-            return BadRequest(new { error = "Search failed", message = ex.Message });
+            _logger.LogError(ex, "Solr connection failed during search");
+            return BadRequest(new { error = "Search service unavailable", message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogError(ex, "Invalid search query");
+            return BadRequest(new { error = "Invalid query", message = ex.Message });
         }
     }
 
@@ -53,7 +60,9 @@ public class SearchController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<MetadataDocument>> GetById(string id)
     {
-        var document = await _searchService.GetByIdAsync(id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+
+        var document = await _searchService.GetByIdAsync(id).ConfigureAwait(false);
         if (document == null)
         {
             return NotFound();
@@ -71,7 +80,9 @@ public class SearchController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> IndexDocument([FromBody] MetadataDocument document)
     {
-        var success = await _searchService.IndexDocumentAsync(document);
+        ArgumentNullException.ThrowIfNull(document);
+
+        var success = await _searchService.IndexDocumentAsync(document).ConfigureAwait(false);
         if (success)
         {
             return CreatedAtAction(nameof(GetById), new { id = document.Id }, document);
@@ -89,7 +100,9 @@ public class SearchController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteDocument(string id)
     {
-        var success = await _searchService.DeleteDocumentAsync(id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+
+        var success = await _searchService.DeleteDocumentAsync(id).ConfigureAwait(false);
         if (success)
         {
             return NoContent();

@@ -72,7 +72,7 @@ public class MetadataDocument
     /// Page number(s) where content was found
     /// </summary>
     [SolrField("page_numbers")]
-    public List<int> PageNumbers { get; set; } = new();
+    public IList<int> PageNumbers { get; } = new List<int>();
 
     /// <summary>
     /// Total page count in the document
@@ -90,31 +90,31 @@ public class MetadataDocument
     /// Text snippets with search highlights
     /// </summary>
     [SolrField("text_snippets")]
-    public List<string> TextSnippets { get; set; } = new();
+    public IList<string> TextSnippets { get; } = new List<string>();
 
     /// <summary>
     /// IIIF manifest URL for the document
     /// </summary>
     [SolrField("iiif_manifest_url")]
-    public string IiifManifestUrl { get; set; } = string.Empty;
+    public string? IiifManifestUrl { get; set; }
 
     /// <summary>
     /// IIIF image base URL
     /// </summary>
     [SolrField("iiif_image_url")]
-    public string IiifImageUrl { get; set; } = string.Empty;
+    public string? IiifImageUrl { get; set; }
 
     /// <summary>
     /// ALTO XML URL for transcription data
     /// </summary>
     [SolrField("alto_xml_url")]
-    public string AltoXmlUrl { get; set; } = string.Empty;
+    public string? AltoXmlUrl { get; set; }
 
     /// <summary>
     /// Interactive viewer URL (Bildvisning)
     /// </summary>
     [SolrField("viewer_url")]
-    public string ViewerUrl { get; set; } = string.Empty;
+    public string? ViewerUrl { get; set; }
 
     /// <summary>
     /// Document type (e.g., "manuscript", "church_record", "photograph")
@@ -126,7 +126,7 @@ public class MetadataDocument
     /// Subject tags or categories
     /// </summary>
     [SolrField("subjects")]
-    public List<string> Subjects { get; set; } = new();
+    public IList<string> Subjects { get; } = new List<string>();
 
     /// <summary>
     /// Language of the document
