@@ -1,0 +1,5 @@
+{
+  "name": "conftest",
+  "engineVersion": "v0.18.16",
+  "sdk": "go"
+}

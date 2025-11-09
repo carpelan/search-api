@@ -3,5 +3,47 @@
   "engineVersion": "v0.18.16",
   "sdk": {
     "source": "go"
-  }
+  },
+  "dependencies": [
+    {
+      "name": "trufflehog",
+      "source": "../dagger-modules-tool-based/trufflehog"
+    },
+    {
+      "name": "semgrep",
+      "source": "../dagger-modules-tool-based/semgrep"
+    },
+    {
+      "name": "trivy",
+      "source": "../dagger-modules-tool-based/trivy"
+    },
+    {
+      "name": "syft",
+      "source": "../dagger-modules-tool-based/syft"
+    },
+    {
+      "name": "cosign",
+      "source": "../dagger-modules-tool-based/cosign"
+    },
+    {
+      "name": "zap",
+      "source": "../dagger-modules-tool-based/zap"
+    },
+    {
+      "name": "nuclei",
+      "source": "../dagger-modules-tool-based/nuclei"
+    },
+    {
+      "name": "k6",
+      "source": "../dagger-modules-tool-based/k6"
+    },
+    {
+      "name": "checkov",
+      "source": "../dagger-modules-tool-based/checkov"
+    },
+    {
+      "name": "conftest",
+      "source": "../dagger-modules-tool-based/conftest"
+    }
+  ]
 }
