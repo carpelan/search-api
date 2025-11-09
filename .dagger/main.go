@@ -636,6 +636,7 @@ func (m *SearchApi) ScanContainer(ctx context.Context, container *dagger.Contain
 		From("aquasec/trivy:latest").
 		WithMountedFile("/image.tar", tarball).
 		WithExec([]string{
+			"trivy",
 			"image",
 			"--input", "/image.tar",
 			"--severity", "HIGH,CRITICAL",
@@ -1227,6 +1228,7 @@ func (m *SearchApi) CisBenchmark(
 		From("aquasec/trivy:latest").
 		WithMountedFile("/image.tar", tarball).
 		WithExec([]string{
+			"trivy",
 			"image",
 			"--input", "/image.tar",
 			"--compliance", "docker-cis",
