@@ -1,5 +1,7 @@
 {
   "name": "search-api",
-  "sdk": "go",
-  "source": "."
+  "engineVersion": "v0.18.16",
+  "sdk": {
+    "source": "go"
+  }
 }

@@ -40,16 +40,12 @@ func (m *SearchApi) SecretScan(
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
+			"trufflehog",
 			"filesystem",
 			"/src",
 			"--json",                    // JSON output for parsing
 			"--no-update",               // Don't update detectors
-			"--fail",                    // Exit with error if secrets found
 			"--concurrency=10",          // Parallel scanning
-			"--exclude-paths=.git",      // Skip .git directory
-			"--exclude-paths=node_modules", // Skip dependencies
-			"--exclude-paths=bin",       // Skip binaries
-			"--exclude-paths=obj",       // Skip build artifacts
 		}).
 		Stdout(ctx)
 
@@ -1259,8 +1255,14 @@ func (m *SearchApi) PushToRegistry(
 	// Build full image reference
 	fullImageRef := fmt.Sprintf("%s:%s", imageRef, tag)
 
+	// Get username as plaintext (WithRegistryAuth expects string username, not Secret)
+	usernameStr, err := username.Plaintext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to read username: %w", err)
+	}
+
 	address, err := container.
-		WithRegistryAuth(registryUrl, username, password).
+		WithRegistryAuth(registryUrl, usernameStr, password).
 		Publish(ctx, fullImageRef)
 
 	if err != nil {
@@ -1296,7 +1298,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 1: Secret Scanning (FAIL FAST)
 	report += "🔐 Step 1: Scanning for hardcoded secrets...\n"
-	secretResult, err := m.SecretScan(ctx, source)
+	_, err := m.SecretScan(ctx, source)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1304,7 +1306,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 2: SAST - Static Application Security Testing (FAIL FAST)
 	report += "🛡️  Step 2: Running SAST (Semgrep)...\n"
-	sastResult, err := m.SastScan(ctx, source)
+	_, err = m.SastScan(ctx, source)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1312,7 +1314,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 3: C# Security Analysis
 	report += "🔒 Step 3: Running C# Security Analysis (.NET Analyzers)...\n"
-	csharpResult, err := m.CSharpSecurityAnalysis(ctx, source)
+	_, err = m.CSharpSecurityAnalysis(ctx, source)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1328,7 +1330,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 5: Code Coverage
 	report += "📊 Step 5: Checking code coverage...\n"
-	coverageResult, err := m.CodeCoverage(ctx, source, 80)
+	_, err = m.CodeCoverage(ctx, source, 80)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Code coverage warning: %v\n\n", err)
 	} else {
@@ -1346,7 +1348,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 3: Dependency Vulnerability Scan (ENFORCED)
 	report += "🔒 Step 7: Scanning dependencies for vulnerabilities...\n"
-	depResult, err := m.DependencyScan(ctx, source)
+	_, err = m.DependencyScan(ctx, source)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1354,7 +1356,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 4: License Compliance Scan (ENFORCED)
 	report += "📜 Step 8: Scanning for license compliance issues...\n"
-	licenseResult, err := m.LicenseScan(ctx, source)
+	_, err = m.LicenseScan(ctx, source)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1362,7 +1364,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 5: IaC Security Scan
 	report += "☸️  Step 9: Scanning Kubernetes manifests (IaC)...\n"
-	iacResult, err := m.IacScan(ctx, source)
+	_, err = m.IacScan(ctx, source)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  IaC scan completed with findings\n\n")
 	} else {
@@ -1371,7 +1373,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 6: Policy as Code (OPA/Conftest)
 	report += "📐 Step 10: Validating policies (OPA/Conftest)...\n"
-	policyResult, err := m.PolicyCheck(ctx, source)
+	_, err = m.PolicyCheck(ctx, source)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Policy check completed with violations\n\n")
 	} else {
@@ -1394,7 +1396,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 12a: Container Size Analysis (optional)
 	report += "📏 Step 12a: Analyzing container size...\n"
-	sizeAnalysis, err := m.ContainerSizeAnalysis(ctx, container)
+	_, err = m.ContainerSizeAnalysis(ctx, container)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Size analysis warning: %v\n\n", err)
 	} else {
@@ -1404,7 +1406,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 7: Container Vulnerability Scan (ENFORCED)
 	report += "🔎 Step 13: Scanning container for vulnerabilities...\n"
-	scanResult, err := m.ScanContainer(ctx, container)
+	_, err = m.ScanContainer(ctx, container)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1412,7 +1414,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 14: CIS Benchmark Compliance
 	report += "📋 Step 14: Running CIS Docker Benchmark...\n"
-	cisResult, err := m.CisBenchmark(ctx, container)
+	_, err = m.CisBenchmark(ctx, container)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  CIS Benchmark completed with findings\n\n")
 	} else {
@@ -1454,7 +1456,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 19: Run Integration Tests
 	report += "🧪 Step 19: Running integration tests...\n"
-	integrationResult, err := m.RunIntegrationTests(ctx, source, cluster)
+	_, err = m.RunIntegrationTests(ctx, source, cluster)
 	if err != nil {
 		return report, fmt.Errorf("integration tests failed: %w", err)
 	}
@@ -1462,7 +1464,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 8: DAST - Dynamic Application Security Testing
 	report += "🎯 Step 20: Running DAST (OWASP ZAP)...\n"
-	dastResult, err := m.DastScan(ctx, cluster)
+	_, err = m.DastScan(ctx, cluster)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1470,7 +1472,7 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 9: API Security Testing (OWASP API Top 10)
 	report += "🔓 Step 21: Running API security tests (Nuclei)...\n"
-	apiSecResult, err := m.ApiSecurityTest(ctx, cluster)
+	_, err = m.ApiSecurityTest(ctx, cluster)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
@@ -1478,7 +1480,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 22: Performance Testing
 	report += "🚀 Step 22: Running performance tests (k6)...\n"
-	perfResult, err := m.PerformanceTest(ctx, cluster, 10, "30s")
+	_, err = m.PerformanceTest(ctx, cluster, 10, "30s")
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Performance test warning: %v\n\n", err)
 	} else {
@@ -1487,7 +1489,7 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 23: Mutation Testing (optional, can be slow)
 	report += "🧬 Step 23: Running mutation tests (Stryker.NET)...\n"
-	mutationResult, err := m.MutationTest(ctx, source, 80)
+	_, err = m.MutationTest(ctx, source, 80)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Mutation testing warning: %v\n\n", err)
 	} else {
