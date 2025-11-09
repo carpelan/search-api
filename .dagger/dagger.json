@@ -44,6 +44,18 @@
     {
       "name": "conftest",
       "source": "../dagger-modules-tool-based/conftest"
+    },
+    {
+      "name": "dotnet",
+      "source": "../dagger-modules-tool-based/dotnet"
+    },
+    {
+      "name": "dive",
+      "source": "../dagger-modules-tool-based/dive"
+    },
+    {
+      "name": "skopeo",
+      "source": "../dagger-modules-tool-based/skopeo"
     }
   ]
 }

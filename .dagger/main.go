@@ -116,16 +116,13 @@ func (m *SearchApi) StaticAnalysis(
 	// +defaultPath="."
 	source *dagger.Directory,
 ) (string, error) {
-	container := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"})
-
-	// Run dotnet format to check code formatting
-	formatOutput, err := container.
-		WithExec([]string{"dotnet", "format", "SearchApi.sln", "--verify-no-changes", "--verbosity", "diagnostic"}).
-		Stdout(ctx)
+	// Use the dotnet module for format checking
+	formatOutput, err := dag.Dotnet().Format(ctx, dagger.DotnetFormatOpts{
+		Source:          source,
+		Project:         "SearchApi.sln",
+		VerifyNoChanges: true,
+		Verbosity:       "diagnostic",
+	})
 
 	if err != nil {
 		return formatOutput, fmt.Errorf("code formatting check failed: %w", err)
@@ -142,24 +139,11 @@ func (m *SearchApi) CSharpSecurityAnalysis(
 	// +defaultPath="."
 	source *dagger.Directory,
 ) (string, error) {
-	// Build with /warnaserror to treat warnings as errors
-	// This enforces all analyzer warnings
-	output, err := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		// Build with analyzer enforcement
-		WithExec([]string{
-			"dotnet", "build", "SearchApi.sln",
-			"-c", "Release",
-			"/p:TreatWarningsAsErrors=true",           // Fail on warnings
-			"/p:EnforceCodeStyleInBuild=true",         // Enforce code style
-			"/p:EnableNETAnalyzers=true",              // Enable .NET analyzers
-			"/p:AnalysisLevel=latest",                 // Use latest analyzer rules
-			"/p:AnalysisMode=AllEnabledByDefault",     // Enable all analyzers
-		}).
-		Stdout(ctx)
+	// Use the dotnet module to build with analyzers
+	output, err := dag.Dotnet().BuildWithAnalyzers(ctx, "SearchApi.sln", dagger.DotnetBuildWithAnalyzersOpts{
+		Source:        source,
+		Configuration: "Release",
+	})
 
 	if err != nil {
 		return "", fmt.Errorf("C# SECURITY ANALYSIS FAILED - security issues detected:\n%s\n%w", output, err)
@@ -178,27 +162,11 @@ func (m *SearchApi) CodeCoverage(
 	// +default="80"
 	minimumCoverage int,
 ) (string, error) {
-	// Run tests with coverage collection
-	container := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
-		// Run tests with coverage
-		WithExec([]string{
-			"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj",
-			"-c", "Release",
-			"--no-build",
-			"--collect:XPlat Code Coverage",
-			"--results-directory", "/coverage",
-			"--logger", "trx",
-		})
-
-	// Get coverage results
-	output, err := container.
-		WithExec([]string{"sh", "-c", "find /coverage -name 'coverage.cobertura.xml' -exec cat {} \\;"}).
-		Stdout(ctx)
+	// Use the dotnet module to get coverage
+	output, err := dag.Dotnet().GetCoverage(ctx, "SearchApi.Tests/SearchApi.Tests.csproj", dagger.DotnetGetCoverageOpts{
+		Source:        source,
+		Configuration: "Release",
+	})
 
 	if err != nil {
 		return "", fmt.Errorf("code coverage collection failed: %w", err)
@@ -297,33 +265,19 @@ func (m *SearchApi) ContainerSizeAnalysis(
 	ctx context.Context,
 	container *dagger.Container,
 ) (string, error) {
-	// Save container as tarball
-	tarball := container.AsTarball()
-
-	// Analyze with dive
-	analysis, err := dag.Container().
-		From("wagoodman/dive:latest").
-		WithMountedFile("/image.tar", tarball).
-		WithExec([]string{
-			"dive",
-			"--source", "docker-archive",
-			"--ci",  // CI mode for machine-readable output
-			"/image.tar",
-		}).
-		Stdout(ctx)
+	// Use the dive module to analyze the container
+	analysis, err := dag.Dive().Analyze(ctx, container, dagger.DiveAnalyzeOpts{
+		CiMode:     true,
+		SourceType: "docker-archive",
+	})
 
 	if err != nil {
 		// Non-fatal - return partial analysis
 		return fmt.Sprintf("Container size analysis completed with warnings\n%s", analysis), nil
 	}
 
-	// Get size information using docker inspect-like approach
-	sizeInfo, err := dag.Container().
-		From("alpine:latest").
-		WithExec([]string{"apk", "add", "--no-cache", "file"}).
-		WithMountedFile("/image.tar", tarball).
-		WithExec([]string{"sh", "-c", "ls -lh /image.tar | awk '{print $5}'"}).
-		Stdout(ctx)
+	// Get size information using the dive module
+	sizeInfo, err := dag.Dive().GetSize(ctx, container)
 
 	if err != nil {
 		sizeInfo = "unknown"
@@ -609,20 +563,12 @@ func (m *SearchApi) PushToLocalRegistry(ctx context.Context, container *dagger.C
 
 	imageRef := fmt.Sprintf("registry:5000/search-api:%s", tag)
 
-	// Export container as tarball and push using skopeo (supports service binding)
-	tarball := container.AsTarball()
-
-	_, err := dag.Container().
-		From("quay.io/skopeo/stable:latest").
-		WithServiceBinding("registry", registry).
-		WithMountedFile("/image.tar", tarball).
-		WithExec([]string{
-			"skopeo", "copy",
-			"--dest-tls-verify=false",  // Local registry without TLS
-			"docker-archive:/image.tar",
-			fmt.Sprintf("docker://registry:5000/search-api:%s", tag),
-		}).
-		Sync(ctx)
+	// Use the skopeo module to push to the registry
+	_, err := dag.Skopeo().PushToRegistry(ctx, container, "registry:5000", "search-api", dagger.SkopeoPushToRegistryOpts{
+		Tag:             tag,
+		RegistryService: registry,
+		DisableTLS:      true,
+	})
 
 	if err != nil {
 		return "", fmt.Errorf("failed to push to local registry: %w", err)
