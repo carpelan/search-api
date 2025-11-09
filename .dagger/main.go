@@ -9,6 +9,54 @@ import (
 
 type SearchApi struct{}
 
+// Constants for container images and configuration
+const (
+	// Base images
+	dotnetSDK           = "mcr.microsoft.com/dotnet/sdk:8.0"
+	dotnetSDKAlpine     = "mcr.microsoft.com/dotnet/sdk:8.0-alpine"
+	aspnetRuntime       = "mcr.microsoft.com/dotnet/aspnet:8.0"
+	aspnetAlpine        = "mcr.microsoft.com/dotnet/aspnet:8.0-alpine"
+	aspnetDistroless    = "mcr.microsoft.com/dotnet/aspnet:8.0-jammy-chiseled"
+	aspnetDistrolessExtra = "mcr.microsoft.com/dotnet/aspnet:8.0-jammy-chiseled-extra"
+
+	// Solution and project files
+	solutionFile    = "SearchApi.sln"
+	mainProject     = "SearchApi/SearchApi.csproj"
+	testProject     = "SearchApi.Tests/SearchApi.Tests.csproj"
+
+	// Build configuration
+	buildConfig     = "Release"
+	aspnetURL       = "http://+:8080"
+	containerPort   = 8080
+)
+
+// buildAndTest executes dotnet restore, build, and test commands
+// This helper consolidates the common build-test pattern used across multiple functions
+func (m *SearchApi) buildAndTest(source *dagger.Directory, sdkImage string) *dagger.Container {
+	return dag.Container().
+		From(sdkImage).
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{"dotnet", "restore", solutionFile}).
+		WithExec([]string{"dotnet", "build", solutionFile, "-c", buildConfig, "--no-restore"}).
+		WithExec([]string{"dotnet", "test", testProject, "-c", buildConfig, "--no-build", "--verbosity", "normal"})
+}
+
+// publishApp executes dotnet publish command
+func (m *SearchApi) publishApp(buildContainer *dagger.Container, publishFlags ...string) *dagger.Directory {
+	args := []string{"dotnet", "publish", mainProject, "-c", buildConfig, "-o", "/app/publish", "--no-restore"}
+	args = append(args, publishFlags...)
+	return buildContainer.WithExec(args).Directory("/app/publish")
+}
+
+// addScanReport adds a scan report file to the output directory if there's no error
+func addScanReport(outputDir *dagger.Directory, filename string, content string, err error) *dagger.Directory {
+	if err == nil {
+		return outputDir.WithNewFile(filename, content)
+	}
+	return outputDir
+}
+
 // Build the C# application and run unit tests
 func (m *SearchApi) Build(
 	ctx context.Context,
@@ -16,165 +64,7 @@ func (m *SearchApi) Build(
 	// +defaultPath="."
 	source *dagger.Directory,
 ) (*dagger.Container, error) {
-	return dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
-		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}), nil
-}
-
-// SecretScan scans for hardcoded secrets using TruffleHog
-func (m *SearchApi) SecretScan(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the trufflehog module
-	output, err := dag.Trufflehog().Scan(ctx, dagger.TrufflehogScanOpts{
-		Source:         source,
-		Format:         "json",
-		Concurrency:    10,
-		FailOnVerified: true,
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("SECRET SCAN FAILED - secrets detected in code: %w", err)
-	}
-
-	return output, nil
-}
-
-// SastScan performs Static Application Security Testing using Semgrep
-func (m *SearchApi) SastScan(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the semgrep module
-	configs := []string{"p/csharp", "p/security-audit", "p/owasp-top-ten", "p/sql-injection", "p/xss"}
-	severity := []string{"ERROR", "WARNING"}
-	exclude := []string{"*.Tests", "obj/", "bin/"}
-
-	output, err := dag.Semgrep().Scan(ctx, dagger.SemgrepScanOpts{
-		Source:   source,
-		Configs:  configs,
-		Severity: severity,
-		Format:   "sarif",
-		Exclude:  exclude,
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("SAST FAILED - security vulnerabilities detected:\n%s\n%w", output, err)
-	}
-
-	return output, nil
-}
-
-// DependencyScan scans dependencies for vulnerabilities with enforcement
-func (m *SearchApi) DependencyScan(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the trivy module
-	output, err := dag.Trivy().ScanVulnerabilities(ctx, dagger.TrivyScanVulnerabilitiesOpts{
-		Source:         source,
-		Severity:       []string{"HIGH", "CRITICAL"},
-		FailOnFindings: true,
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("DEPENDENCY SCAN FAILED - vulnerable packages found: %w", err)
-	}
-
-	return output, nil
-}
-
-// IacScan scans Infrastructure as Code (Kubernetes manifests) for security issues
-func (m *SearchApi) IacScan(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the checkov module
-	return dag.Checkov().ScanKubernetes(ctx, dagger.CheckovScanKubernetesOpts{
-		Source: source,
-		K8SDir: "k8s",
-	})
-}
-
-// Run static analysis with dotnet format and analyzers
-func (m *SearchApi) StaticAnalysis(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the dotnet module for format checking
-	formatOutput, err := dag.Dotnet().Format(ctx, dagger.DotnetFormatOpts{
-		Source:          source,
-		Project:         "SearchApi.sln",
-		VerifyNoChanges: true,
-		Verbosity:       "diagnostic",
-	})
-
-	if err != nil {
-		return formatOutput, fmt.Errorf("code formatting check failed: %w", err)
-	}
-
-	return "Static analysis passed: Code formatting is correct", nil
-}
-
-// CSharpSecurityAnalysis runs C#-specific security analyzers
-// Uses Security Code Scan and built-in .NET analyzers
-func (m *SearchApi) CSharpSecurityAnalysis(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the dotnet module to build with analyzers
-	output, err := dag.Dotnet().BuildWithAnalyzers(ctx, "SearchApi.sln", dagger.DotnetBuildWithAnalyzersOpts{
-		Source:        source,
-		Configuration: "Release",
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("C# SECURITY ANALYSIS FAILED - security issues detected:\n%s\n%w", output, err)
-	}
-
-	return output, nil
-}
-
-// CodeCoverage runs tests with code coverage and enforces minimum threshold
-func (m *SearchApi) CodeCoverage(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-	// Minimum code coverage percentage (0-100)
-	// +default="80"
-	minimumCoverage int,
-) (string, error) {
-	// Use the dotnet module to get coverage
-	output, err := dag.Dotnet().GetCoverage(ctx, "SearchApi.Tests/SearchApi.Tests.csproj", dagger.DotnetGetCoverageOpts{
-		Source:        source,
-		Configuration: "Release",
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("code coverage collection failed: %w", err)
-	}
-
-	// TODO: Parse coverage percentage and compare against minimumCoverage
-	// For now, just return the coverage report
-	return output, nil
+	return m.buildAndTest(source, dotnetSDK), nil
 }
 
 // BuildContainer creates the production Docker image
@@ -185,28 +75,21 @@ func (m *SearchApi) BuildContainer(
 	source *dagger.Directory,
 ) *dagger.Container {
 	// Build stage - use SDK to build and publish
-	publishDir := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
-		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
-		WithExec([]string{"dotnet", "publish", "SearchApi/SearchApi.csproj", "-c", "Release", "-o", "/app/publish", "--no-restore"}).
-		Directory("/app/publish")
+	buildContainer := m.buildAndTest(source, dotnetSDK)
+	publishDir := m.publishApp(buildContainer)
 
 	// Runtime stage - use minimal ASP.NET runtime
 	return dag.Container().
-		From("mcr.microsoft.com/dotnet/aspnet:8.0").
+		From(aspnetRuntime).
 		WithExec([]string{"groupadd", "-r", "searchapi"}).
 		WithExec([]string{"useradd", "-r", "-g", "searchapi", "searchapi"}).
 		WithWorkdir("/app").
 		WithDirectory("/app", publishDir).
 		WithExec([]string{"chown", "-R", "searchapi:searchapi", "/app"}).
 		WithUser("searchapi").
-		WithEnvVariable("ASPNETCORE_URLS", "http://+:8080").
+		WithEnvVariable("ASPNETCORE_URLS", aspnetURL).
 		WithEnvVariable("DOTNET_RUNNING_IN_CONTAINER", "true").
-		WithExposedPort(8080).
+		WithExposedPort(containerPort).
 		WithEntrypoint([]string{"dotnet", "SearchApi.dll"})
 }
 
@@ -219,32 +102,21 @@ func (m *SearchApi) BuildContainerOptimized(
 	source *dagger.Directory,
 ) *dagger.Container {
 	// Build stage - use Alpine SDK for smaller size
-	publishDir := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0-alpine").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
-		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
-		// Publish with trimming and ReadyToRun for optimal size and startup
-		WithExec([]string{
-			"dotnet", "publish", "SearchApi/SearchApi.csproj",
-			"-c", "Release",
-			"-o", "/app/publish",
-			"--no-restore",
-			"/p:PublishTrimmed=true",                    // Enable IL trimming
-			"/p:TrimMode=link",                           // Aggressive trimming
-			"/p:PublishReadyToRun=true",                  // AOT compilation for startup
-			"/p:PublishSingleFile=false",                 // Better for containerization
-			"/p:EnableCompressionInSingleFile=true",      // Compress assemblies
-			"/p:DebugType=none",                          // Remove debug symbols
-			"/p:DebugSymbols=false",                      // Remove debug symbols
-		}).
-		Directory("/app/publish")
+	buildContainer := m.buildAndTest(source, dotnetSDKAlpine)
+	// Publish with trimming and ReadyToRun for optimal size and startup
+	publishDir := m.publishApp(buildContainer,
+		"/p:PublishTrimmed=true",                 // Enable IL trimming
+		"/p:TrimMode=link",                        // Aggressive trimming
+		"/p:PublishReadyToRun=true",               // AOT compilation for startup
+		"/p:PublishSingleFile=false",              // Better for containerization
+		"/p:EnableCompressionInSingleFile=true",   // Compress assemblies
+		"/p:DebugType=none",                       // Remove debug symbols
+		"/p:DebugSymbols=false",                   // Remove debug symbols
+	)
 
 	// Runtime stage - use Alpine ASP.NET runtime (smallest official image)
 	return dag.Container().
-		From("mcr.microsoft.com/dotnet/aspnet:8.0-alpine").
+		From(aspnetAlpine).
 		// Alpine addgroup/adduser syntax
 		WithExec([]string{"addgroup", "-S", "searchapi"}).
 		WithExec([]string{"adduser", "-S", "-G", "searchapi", "searchapi"}).
@@ -252,10 +124,10 @@ func (m *SearchApi) BuildContainerOptimized(
 		WithDirectory("/app", publishDir).
 		WithExec([]string{"chown", "-R", "searchapi:searchapi", "/app"}).
 		WithUser("searchapi").
-		WithEnvVariable("ASPNETCORE_URLS", "http://+:8080").
+		WithEnvVariable("ASPNETCORE_URLS", aspnetURL).
 		WithEnvVariable("DOTNET_RUNNING_IN_CONTAINER", "true").
-		WithEnvVariable("DOTNET_EnableDiagnostics", "0").  // Disable diagnostics for smaller size
-		WithExposedPort(8080).
+		WithEnvVariable("DOTNET_EnableDiagnostics", "0"). // Disable diagnostics for smaller size
+		WithExposedPort(containerPort).
 		WithEntrypoint([]string{"dotnet", "SearchApi.dll"})
 }
 
@@ -310,37 +182,26 @@ func (m *SearchApi) BuildContainerDistroless(
 	source *dagger.Directory,
 ) *dagger.Container {
 	// Build stage - use standard SDK (not Alpine, as distroless runtime is glibc-based)
-	publishDir := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
-		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
-		// Publish with optimized settings for distroless deployment
-		WithExec([]string{
-			"dotnet", "publish", "SearchApi/SearchApi.csproj",
-			"-c", "Release",
-			"-o", "/app/publish",
-			"--no-restore",
-			"/p:DebugType=none",                          // Remove debug symbols for smaller size
-			"/p:DebugSymbols=false",                      // Remove debug symbols
-			"/p:InvariantGlobalization=true",             // Remove globalization data (smaller size)
-		}).
-		Directory("/app/publish")
+	buildContainer := m.buildAndTest(source, dotnetSDK)
+	// Publish with optimized settings for distroless deployment
+	publishDir := m.publishApp(buildContainer,
+		"/p:DebugType=none",              // Remove debug symbols for smaller size
+		"/p:DebugSymbols=false",          // Remove debug symbols
+		"/p:InvariantGlobalization=true", // Remove globalization data (smaller size)
+	)
 
 	// Runtime stage - use distroless chiseled Ubuntu (NO shell, NO package manager)
 	return dag.Container().
-		From("mcr.microsoft.com/dotnet/aspnet:8.0-jammy-chiseled").
+		From(aspnetDistroless).
 		WithWorkdir("/app").
 		WithDirectory("/app", publishDir).
 		// Distroless images run as non-root by default (APP_UID=1654)
 		// No need to create users - already configured securely
-		WithEnvVariable("ASPNETCORE_URLS", "http://+:8080").
+		WithEnvVariable("ASPNETCORE_URLS", aspnetURL).
 		WithEnvVariable("DOTNET_RUNNING_IN_CONTAINER", "true").
 		WithEnvVariable("DOTNET_EnableDiagnostics", "0").
-		WithEnvVariable("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1").  // Match build setting
-		WithExposedPort(8080).
+		WithEnvVariable("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1"). // Match build setting
+		WithExposedPort(containerPort).
 		WithEntrypoint([]string{"dotnet", "SearchApi.dll"})
 }
 
@@ -353,35 +214,24 @@ func (m *SearchApi) BuildContainerDistrolessExtra(
 	source *dagger.Directory,
 ) *dagger.Container {
 	// Build stage - use standard SDK (not Alpine, as distroless runtime is glibc-based)
-	publishDir := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithDirectory("/src", source).
-		WithWorkdir("/src").
-		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
-		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
-		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
-		// Publish with optimized settings for distroless deployment
-		WithExec([]string{
-			"dotnet", "publish", "SearchApi/SearchApi.csproj",
-			"-c", "Release",
-			"-o", "/app/publish",
-			"--no-restore",
-			"/p:DebugType=none",                          // Remove debug symbols for smaller size
-			"/p:DebugSymbols=false",                      // Remove debug symbols
-			"/p:InvariantGlobalization=true",             // Remove globalization data (use -extra if needed)
-		}).
-		Directory("/app/publish")
+	buildContainer := m.buildAndTest(source, dotnetSDK)
+	// Publish with optimized settings for distroless deployment
+	publishDir := m.publishApp(buildContainer,
+		"/p:DebugType=none",              // Remove debug symbols for smaller size
+		"/p:DebugSymbols=false",          // Remove debug symbols
+		"/p:InvariantGlobalization=true", // Remove globalization data (use -extra if needed)
+	)
 
 	// Runtime stage - use distroless chiseled Ubuntu -extra variant (includes ICU, tzdata)
 	return dag.Container().
-		From("mcr.microsoft.com/dotnet/aspnet:8.0-jammy-chiseled-extra").
+		From(aspnetDistrolessExtra).
 		WithWorkdir("/app").
 		WithDirectory("/app", publishDir).
 		// Distroless images run as non-root by default (APP_UID=1654)
-		WithEnvVariable("ASPNETCORE_URLS", "http://+:8080").
+		WithEnvVariable("ASPNETCORE_URLS", aspnetURL).
 		WithEnvVariable("DOTNET_RUNNING_IN_CONTAINER", "true").
 		WithEnvVariable("DOTNET_EnableDiagnostics", "0").
-		WithExposedPort(8080).
+		WithExposedPort(containerPort).
 		WithEntrypoint([]string{"dotnet", "SearchApi.dll"})
 }
 
@@ -502,40 +352,6 @@ func (m *SearchApi) CompareContainerSizes(
 	return report, nil
 }
 
-// GenerateSBOM creates a Software Bill of Materials
-func (m *SearchApi) GenerateSbom(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the syft module
-	sbom, err := dag.Syft().Scan(ctx, dagger.SyftScanOpts{
-		Source: source,
-		Format: "spdx-json",
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("SBOM generation failed: %w", err)
-	}
-
-	return sbom, nil
-}
-
-// ScanContainer performs security scanning on the built container
-func (m *SearchApi) ScanContainer(ctx context.Context, container *dagger.Container) (string, error) {
-	// Use the trivy module to scan container
-	scanResult, err := dag.Trivy().ScanContainer(ctx, container, dagger.TrivyScanContainerOpts{
-		Severity: []string{"HIGH", "CRITICAL"},
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("container scan FAILED - vulnerabilities found: %w", err)
-	}
-
-	return scanResult, nil
-}
-
 // SetupLocalRegistry starts a local Docker registry for testing
 func (m *SearchApi) SetupLocalRegistry() *dagger.Service {
 	return dag.Container().
@@ -619,93 +435,6 @@ func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Dire
 	return output, nil
 }
 
-// DastScan performs Dynamic Application Security Testing using OWASP ZAP
-// Scans the running application for vulnerabilities (XSS, SQLi, auth issues, etc.)
-// No internet access - only uses service bindings
-func (m *SearchApi) DastScan(ctx context.Context, apiService *dagger.Service) (string, error) {
-	// Use the zap module for DAST scanning
-	output, err := dag.Zap().BaselineScan(ctx, apiService, dagger.ZapBaselineScanOpts{
-		TargetURL: "http://api:8080",
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("DAST scan failed: %w", err)
-	}
-
-	return output, nil
-}
-
-// LicenseScan checks for license compliance issues
-// Detects GPL/AGPL in commercial code, license incompatibilities, etc.
-func (m *SearchApi) LicenseScan(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the trivy module for license scanning
-	output, err := dag.Trivy().ScanLicenses(ctx, dagger.TrivyScanLicensesOpts{
-		Source:   source,
-		Severity: []string{"HIGH", "CRITICAL"},
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("LICENSE SCAN FAILED - problematic licenses detected: %w", err)
-	}
-
-	return output, nil
-}
-
-// SignImage signs the container image with Cosign for supply chain security
-// Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD environment variables
-func (m *SearchApi) SignImage(
-	ctx context.Context,
-	container *dagger.Container,
-	// Private key for signing (use cosign generate-key-pair to create)
-	privateKey *dagger.Secret,
-	// Password for the private key
-	password *dagger.Secret,
-	// Image reference to sign (e.g., "harbor.example.com/myproject/search-api:v1.0.0")
-	imageRef string,
-) (string, error) {
-	// Use the cosign module to sign the image
-	output, err := dag.Cosign().Sign(ctx, container, privateKey, password, imageRef)
-
-	if err != nil {
-		return "", fmt.Errorf("image signing failed: %w", err)
-	}
-
-	return output, nil
-}
-
-// PerformanceTest runs load testing against the deployed application
-// Uses k6 to test API performance under load
-// No internet access - only uses service bindings
-func (m *SearchApi) PerformanceTest(
-	ctx context.Context,
-	apiService *dagger.Service,
-	// Number of virtual users
-	// +default="10"
-	virtualUsers int,
-	// Test duration (e.g., "30s", "1m", "5m")
-	// +default="30s"
-	duration string,
-) (string, error) {
-	// Use the k6 module for load testing
-	output, err := dag.K6().LoadTest(ctx, apiService, dagger.K6LoadTestOpts{
-		TargetURL: "http://api:8080",
-		Endpoint:  "/health",
-		Vus:       virtualUsers,
-		Duration:  duration,
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("PERFORMANCE TEST FAILED - did not meet performance thresholds: %w", err)
-	}
-
-	return output, nil
-}
-
 // MutationTest runs mutation testing to verify test quality
 // Uses Stryker.NET to mutate code and ensure tests catch the mutations
 func (m *SearchApi) MutationTest(
@@ -740,25 +469,6 @@ func (m *SearchApi) MutationTest(
 	return output, nil
 }
 
-// ApiSecurityTest performs API-specific security testing
-// Uses Nuclei to test for OWASP API Security Top 10 vulnerabilities
-// No internet access - only uses service bindings (templates must be pre-bundled in image)
-func (m *SearchApi) ApiSecurityTest(
-	ctx context.Context,
-	apiService *dagger.Service,
-) (string, error) {
-	// Use the nuclei module for API security testing
-	output, err := dag.Nuclei().ScanAPI(ctx, apiService, dagger.NucleiScanAPIOpts{
-		TargetURL: "http://api:8080",
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("API SECURITY TEST FAILED - API vulnerabilities detected: %w", err)
-	}
-
-	return output, nil
-}
-
 // AttestSbom attaches SBOM as an attestation to the container image
 // Uses Cosign to create a verifiable attestation
 func (m *SearchApi) AttestSbom(
@@ -783,53 +493,21 @@ func (m *SearchApi) AttestSbom(
 	return output, nil
 }
 
-// PolicyCheck validates configurations against custom OPA policies
-// Uses Conftest to enforce policy as code
-func (m *SearchApi) PolicyCheck(
-	ctx context.Context,
-	// +optional
-	// +defaultPath="."
-	source *dagger.Directory,
-) (string, error) {
-	// Use the conftest module to test Kubernetes manifests
-	output, err := dag.Conftest().TestKubernetes(ctx, dagger.ConftestTestKubernetesOpts{
-		Source: source,
-		K8SDir: "k8s",
-	})
-
-	if err != nil {
-		// Policy violations found - return output but don't fail the pipeline
-		// This allows for policy reporting without blocking deployments
-		return output, nil
-	}
-
-	return output, nil
-}
-
 // CisBenchmark runs CIS Docker Benchmark security checks
 // Validates Docker/container best practices using Trivy's config scanning
 func (m *SearchApi) CisBenchmark(
 	ctx context.Context,
 	container *dagger.Container,
 ) (string, error) {
-	// Save container as tarball
-	tarball := container.AsTarball()
-
-	// Run security best practice checks using Trivy
+	// Run security best practice checks using Trivy module
 	// Note: docker-cis compliance was removed in newer Trivy versions
-	// Using config scanning for Docker best practices instead
-	output, err := dag.Container().
-		From("aquasec/trivy:latest").
-		WithMountedFile("/image.tar", tarball).
-		WithExec([]string{
-			"trivy",
-			"image",
-			"--input", "/image.tar",
-			"--scanners", "config,secret",
-			"--format", "json",
-			"--severity", "HIGH,CRITICAL",
-		}).
-		Stdout(ctx)
+	// Using config and secret scanning for Docker best practices instead
+	output, err := dag.Trivy().ScanContainer(ctx, container, dagger.TrivyScanContainerOpts{
+		Scanners: []string{"config", "secret"},
+		Severity: []string{"HIGH", "CRITICAL"},
+		Format:   "json",
+		ExitCode: 0, // Don't fail, just report
+	})
 
 	if err != nil {
 		return output, fmt.Errorf("CIS Benchmark check completed with findings: %w", err)
@@ -896,25 +574,39 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 1: Secret Scanning (FAIL FAST)
 	report += "🔐 Step 1: Scanning for hardcoded secrets...\n"
-	_, err := m.SecretScan(ctx, source)
+	_, err := dag.Trufflehog().Scan(ctx, dagger.TrufflehogScanOpts{
+		Source:         source,
+		Format:         "json",
+		Concurrency:    10,
+		FailOnVerified: true,
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - SECRET SCAN FAILED - secrets detected in code: %w", err)
 	}
 	report += "✅ No secrets detected\n\n"
 
 	// SECURITY GATE 2: SAST - Static Application Security Testing (FAIL FAST)
 	report += "🛡️  Step 2: Running SAST (Semgrep)...\n"
-	_, err = m.SastScan(ctx, source)
+	_, err = dag.Semgrep().Scan(ctx, dagger.SemgrepScanOpts{
+		Source:   source,
+		Configs:  []string{"p/csharp", "p/security-audit", "p/owasp-top-ten", "p/sql-injection", "p/xss"},
+		Severity: []string{"ERROR", "WARNING"},
+		Format:   "sarif",
+		Exclude:  []string{"*.Tests", "obj/", "bin/"},
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - SAST FAILED - security vulnerabilities detected: %w", err)
 	}
-	report += fmt.Sprintf("✅ SAST passed - no security vulnerabilities in code\n\n")
+	report += "✅ SAST passed - no security vulnerabilities in code\n\n"
 
 	// Step 3: C# Security Analysis
 	report += "🔒 Step 3: Running C# Security Analysis (.NET Analyzers)...\n"
-	_, err = m.CSharpSecurityAnalysis(ctx, source)
+	_, err = dag.Dotnet().BuildWithAnalyzers(ctx, "SearchApi.sln", dagger.DotnetBuildWithAnalyzersOpts{
+		Source:        source,
+		Configuration: "Release",
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - C# SECURITY ANALYSIS FAILED - security issues detected: %w", err)
 	}
 	report += "✅ C# security analysis passed\n\n"
 
@@ -928,7 +620,10 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 5: Code Coverage
 	report += "📊 Step 5: Checking code coverage...\n"
-	_, err = m.CodeCoverage(ctx, source, 80)
+	_, err = dag.Dotnet().GetCoverage(ctx, "SearchApi.Tests/SearchApi.Tests.csproj", dagger.DotnetGetCoverageOpts{
+		Source:        source,
+		Configuration: "Release",
+	})
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Code coverage warning: %v\n\n", err)
 	} else {
@@ -937,50 +632,71 @@ func (m *SearchApi) FullPipeline(
 
 	// Step 6: Code Quality - Static Analysis
 	report += "🔍 Step 6: Running code quality checks...\n"
-	staticResult, err := m.StaticAnalysis(ctx, source)
+	_, err = dag.Dotnet().Format(ctx, dagger.DotnetFormatOpts{
+		Source:          source,
+		Project:         "SearchApi.sln",
+		VerifyNoChanges: true,
+		Verbosity:       "diagnostic",
+	})
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Code formatting warnings: %v\n\n", err)
 	} else {
-		report += fmt.Sprintf("✅ %s\n\n", staticResult)
+		report += "✅ Static analysis passed: Code formatting is correct\n\n"
 	}
 
 	// SECURITY GATE 3: Dependency Vulnerability Scan (ENFORCED)
 	report += "🔒 Step 7: Scanning dependencies for vulnerabilities...\n"
-	_, err = m.DependencyScan(ctx, source)
+	_, err = dag.Trivy().ScanVulnerabilities(ctx, dagger.TrivyScanVulnerabilitiesOpts{
+		Source:         source,
+		Severity:       []string{"HIGH", "CRITICAL"},
+		FailOnFindings: true,
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - DEPENDENCY SCAN FAILED - vulnerable packages found: %w", err)
 	}
 	report += "✅ No vulnerable dependencies found\n\n"
 
 	// SECURITY GATE 4: License Compliance Scan (ENFORCED)
 	report += "📜 Step 8: Scanning for license compliance issues...\n"
-	_, err = m.LicenseScan(ctx, source)
+	_, err = dag.Trivy().ScanLicenses(ctx, dagger.TrivyScanLicensesOpts{
+		Source:   source,
+		Severity: []string{"HIGH", "CRITICAL"},
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - LICENSE SCAN FAILED - problematic licenses detected: %w", err)
 	}
 	report += "✅ No problematic licenses detected\n\n"
 
 	// SECURITY GATE 5: IaC Security Scan
 	report += "☸️  Step 9: Scanning Kubernetes manifests (IaC)...\n"
-	_, err = m.IacScan(ctx, source)
+	_, err = dag.Checkov().ScanKubernetes(ctx, dagger.CheckovScanKubernetesOpts{
+		Source: source,
+		K8SDir: "k8s",
+	})
 	if err != nil {
-		report += fmt.Sprintf("⚠️  IaC scan completed with findings\n\n")
+		report += "⚠️  IaC scan completed with findings\n\n"
 	} else {
 		report += "✅ IaC security scan completed\n\n"
 	}
 
 	// SECURITY GATE 6: Policy as Code (OPA/Conftest)
 	report += "📐 Step 10: Validating policies (OPA/Conftest)...\n"
-	_, err = m.PolicyCheck(ctx, source)
+	_, err = dag.Conftest().TestKubernetes(ctx, dagger.ConftestTestKubernetesOpts{
+		Source: source,
+		K8SDir: "k8s",
+	})
 	if err != nil {
-		report += fmt.Sprintf("⚠️  Policy check completed with violations\n\n")
+		report += "⚠️  Policy check completed with violations\n\n"
 	} else {
 		report += "✅ All policy checks passed\n\n"
 	}
 
 	// Step 11: Generate SBOM
 	report += "📋 Step 11: Generating SBOM...\n"
-	sbom, err := m.GenerateSbom(ctx, source)
+	sbom, err := dag.Syft().Scan(ctx, dagger.SyftScanOpts{
+		Source: source,
+		Format: "spdx-json",
+	})
 	if err != nil {
 		report += fmt.Sprintf("⚠️  SBOM generation warning: %v\n\n", err)
 	} else {
@@ -1004,9 +720,11 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 7: Container Vulnerability Scan (ENFORCED)
 	report += "🔎 Step 13: Scanning container for vulnerabilities...\n"
-	_, err = m.ScanContainer(ctx, container)
+	_, err = dag.Trivy().ScanContainer(ctx, container, dagger.TrivyScanContainerOpts{
+		Severity: []string{"HIGH", "CRITICAL"},
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - container scan FAILED - vulnerabilities found: %w", err)
 	}
 	report += "✅ Container has no HIGH/CRITICAL vulnerabilities\n\n"
 
@@ -1045,23 +763,32 @@ func (m *SearchApi) FullPipeline(
 
 	// SECURITY GATE 8: DAST - Dynamic Application Security Testing
 	report += "🎯 Step 18: Running DAST (OWASP ZAP)...\n"
-	_, err = m.DastScan(ctx, apiService)
+	_, err = dag.Zap().BaselineScan(ctx, apiService, dagger.ZapBaselineScanOpts{
+		TargetURL: "http://api:8080",
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - DAST scan failed: %w", err)
 	}
 	report += "✅ DAST passed - no vulnerabilities in running application\n\n"
 
 	// SECURITY GATE 9: API Security Testing (OWASP API Top 10)
 	report += "🔓 Step 19: Running API security tests (Nuclei)...\n"
-	_, err = m.ApiSecurityTest(ctx, apiService)
+	_, err = dag.Nuclei().ScanAPI(ctx, apiService, dagger.NucleiScanAPIOpts{
+		TargetURL: "http://api:8080",
+	})
 	if err != nil {
-		return report, fmt.Errorf("❌ BLOCKED - %w", err)
+		return report, fmt.Errorf("❌ BLOCKED - API SECURITY TEST FAILED - API vulnerabilities detected: %w", err)
 	}
 	report += "✅ API security tests passed - no API vulnerabilities\n\n"
 
 	// Step 20: Performance Testing
 	report += "🚀 Step 20: Running performance tests (k6)...\n"
-	_, err = m.PerformanceTest(ctx, apiService, 10, "30s")
+	_, err = dag.K6().LoadTest(ctx, apiService, dagger.K6LoadTestOpts{
+		TargetURL: "http://api:8080",
+		Endpoint:  "/health",
+		Vus:       10,
+		Duration:  "30s",
+	})
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Performance test warning: %v\n\n", err)
 	} else {
@@ -1111,52 +838,72 @@ func (m *SearchApi) ExportPipelineReports(
 	// Run each scan and export the JSON reports
 
 	// 1. Secret Scan
-	if secretReport, err := m.SecretScan(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("01-secret-scan.json", secretReport)
-	}
+	secretReport, err := dag.Trufflehog().Scan(ctx, dagger.TrufflehogScanOpts{
+		Source:         source,
+		Format:         "json",
+		Concurrency:    10,
+		FailOnVerified: true,
+	})
+	outputDir = addScanReport(outputDir, "01-secret-scan.json", secretReport, err)
 
 	// 2. SAST Scan
-	if sastReport, err := m.SastScan(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("02-sast-scan.json", sastReport)
-	}
+	sastReport, err := dag.Semgrep().Scan(ctx, dagger.SemgrepScanOpts{
+		Source:   source,
+		Configs:  []string{"p/csharp", "p/security-audit", "p/owasp-top-ten", "p/sql-injection", "p/xss"},
+		Severity: []string{"ERROR", "WARNING"},
+		Format:   "sarif",
+		Exclude:  []string{"*.Tests", "obj/", "bin/"},
+	})
+	outputDir = addScanReport(outputDir, "02-sast-scan.json", sastReport, err)
 
 	// 3. Dependency Scan
-	if depReport, err := m.DependencyScan(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("03-dependency-scan.json", depReport)
-	}
+	depReport, err := dag.Trivy().ScanVulnerabilities(ctx, dagger.TrivyScanVulnerabilitiesOpts{
+		Source:         source,
+		Severity:       []string{"HIGH", "CRITICAL"},
+		FailOnFindings: true,
+	})
+	outputDir = addScanReport(outputDir, "03-dependency-scan.json", depReport, err)
 
 	// 4. License Scan
-	if licenseReport, err := m.LicenseScan(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("04-license-scan.json", licenseReport)
-	}
+	licenseReport, err := dag.Trivy().ScanLicenses(ctx, dagger.TrivyScanLicensesOpts{
+		Source:   source,
+		Severity: []string{"HIGH", "CRITICAL"},
+	})
+	outputDir = addScanReport(outputDir, "04-license-scan.json", licenseReport, err)
 
 	// 5. IaC Scan
-	if iacReport, err := m.IacScan(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("05-iac-scan.json", iacReport)
-	}
+	iacReport, err := dag.Checkov().ScanKubernetes(ctx, dagger.CheckovScanKubernetesOpts{
+		Source: source,
+		K8SDir: "k8s",
+	})
+	outputDir = addScanReport(outputDir, "05-iac-scan.json", iacReport, err)
 
 	// 6. C# Security Analysis
-	if csharpReport, err := m.CSharpSecurityAnalysis(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("06-csharp-security.txt", csharpReport)
-	}
+	csharpReport, err := dag.Dotnet().BuildWithAnalyzers(ctx, solutionFile, dagger.DotnetBuildWithAnalyzersOpts{
+		Source:        source,
+		Configuration: buildConfig,
+	})
+	outputDir = addScanReport(outputDir, "06-csharp-security.txt", csharpReport, err)
 
 	// 7. Generate SBOM
-	if sbomReport, err := m.GenerateSbom(ctx, source); err == nil {
-		outputDir = outputDir.WithNewFile("07-sbom.json", sbomReport)
-	}
+	sbomReport, err := dag.Syft().Scan(ctx, dagger.SyftScanOpts{
+		Source: source,
+		Format: "spdx-json",
+	})
+	outputDir = addScanReport(outputDir, "07-sbom.json", sbomReport, err)
 
 	// 8. Build container for scanning
 	container := m.BuildContainer(ctx, source)
 
 	// Container Scan
-	if containerReport, err := m.ScanContainer(ctx, container); err == nil {
-		outputDir = outputDir.WithNewFile("08-container-scan.json", containerReport)
-	}
+	containerReport, err := dag.Trivy().ScanContainer(ctx, container, dagger.TrivyScanContainerOpts{
+		Severity: []string{"HIGH", "CRITICAL"},
+	})
+	outputDir = addScanReport(outputDir, "08-container-scan.json", containerReport, err)
 
 	// CIS Benchmark
-	if cisReport, err := m.CisBenchmark(ctx, container); err == nil {
-		outputDir = outputDir.WithNewFile("09-cis-benchmark.json", cisReport)
-	}
+	cisReport, err := m.CisBenchmark(ctx, container)
+	outputDir = addScanReport(outputDir, "09-cis-benchmark.json", cisReport, err)
 
 	// Note: SBOM Attestation requires signing keys, skipping in report export
 
