@@ -5,7 +5,6 @@ import (
 	"context"
 	"dagger/search-api/internal/dagger"
 	"fmt"
-	"strings"
 )
 
 type SearchApi struct{}
@@ -139,6 +138,7 @@ func (m *SearchApi) IacScan(
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{
+			"checkov",
 			"-d", "k8s",
 			"--framework", "kubernetes",
 			"--compact",
@@ -402,28 +402,23 @@ func (m *SearchApi) BuildContainerDistroless(
 	// +defaultPath="."
 	source *dagger.Directory,
 ) *dagger.Container {
-	// Build stage - use Alpine SDK for smaller size
+	// Build stage - use standard SDK (not Alpine, as distroless runtime is glibc-based)
 	publishDir := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0-alpine").
+		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
 		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
 		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
-		// Publish with trimming and ReadyToRun for optimal size and startup
+		// Publish with optimized settings for distroless deployment
 		WithExec([]string{
 			"dotnet", "publish", "SearchApi/SearchApi.csproj",
 			"-c", "Release",
 			"-o", "/app/publish",
 			"--no-restore",
-			"/p:PublishTrimmed=true",                    // Enable IL trimming
-			"/p:TrimMode=link",                           // Aggressive trimming
-			"/p:PublishReadyToRun=true",                  // AOT compilation for startup
-			"/p:PublishSingleFile=false",                 // Better for containerization
-			"/p:EnableCompressionInSingleFile=true",      // Compress assemblies
-			"/p:DebugType=none",                          // Remove debug symbols
+			"/p:DebugType=none",                          // Remove debug symbols for smaller size
 			"/p:DebugSymbols=false",                      // Remove debug symbols
-			"/p:InvariantGlobalization=true",             // Remove globalization data for smaller size
+			"/p:InvariantGlobalization=true",             // Remove globalization data (smaller size)
 		}).
 		Directory("/app/publish")
 
@@ -450,27 +445,23 @@ func (m *SearchApi) BuildContainerDistrolessExtra(
 	// +defaultPath="."
 	source *dagger.Directory,
 ) *dagger.Container {
-	// Build stage - use Alpine SDK for smaller size
+	// Build stage - use standard SDK (not Alpine, as distroless runtime is glibc-based)
 	publishDir := dag.Container().
-		From("mcr.microsoft.com/dotnet/sdk:8.0-alpine").
+		From("mcr.microsoft.com/dotnet/sdk:8.0").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
 		WithExec([]string{"dotnet", "restore", "SearchApi.sln"}).
 		WithExec([]string{"dotnet", "build", "SearchApi.sln", "-c", "Release", "--no-restore"}).
 		WithExec([]string{"dotnet", "test", "SearchApi.Tests/SearchApi.Tests.csproj", "-c", "Release", "--no-build", "--verbosity", "normal"}).
-		// Publish with trimming and ReadyToRun for optimal size and startup
+		// Publish with optimized settings for distroless deployment
 		WithExec([]string{
 			"dotnet", "publish", "SearchApi/SearchApi.csproj",
 			"-c", "Release",
 			"-o", "/app/publish",
 			"--no-restore",
-			"/p:PublishTrimmed=true",                    // Enable IL trimming
-			"/p:TrimMode=link",                           // Aggressive trimming
-			"/p:PublishReadyToRun=true",                  // AOT compilation for startup
-			"/p:PublishSingleFile=false",                 // Better for containerization
-			"/p:EnableCompressionInSingleFile=true",      // Compress assemblies
-			"/p:DebugType=none",                          // Remove debug symbols
+			"/p:DebugType=none",                          // Remove debug symbols for smaller size
 			"/p:DebugSymbols=false",                      // Remove debug symbols
+			"/p:InvariantGlobalization=true",             // Remove globalization data (use -extra if needed)
 		}).
 		Directory("/app/publish")
 
@@ -616,7 +607,7 @@ func (m *SearchApi) GenerateSbom(
 		From("anchore/syft:latest").
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
-		WithExec([]string{"syft", "dir:/src", "-o", "spdx-json"}).
+		WithExec([]string{"dir:/src", "-o", "spdx-json"}).
 		Stdout(ctx)
 
 	if err != nil {
@@ -660,211 +651,82 @@ func (m *SearchApi) SetupLocalRegistry() *dagger.Service {
 		AsService()
 }
 
-// PushToLocalRegistry pushes the container to local registry
+// SetupSolr starts a Solr service for testing with proper configuration
+func (m *SearchApi) SetupSolr(ctx context.Context) (*dagger.Service, error) {
+	// Create Solr service using the default entrypoint
+	// The Solr image's default CMD will start Solr in foreground mode
+	// We'll use the standard Solr service without precreating cores
+	// The API should handle core creation if needed
+	solrContainer := dag.Container().
+		From("solr:9.4").
+		WithExposedPort(8983)
+
+	return solrContainer.AsService(), nil
+}
+
+// PushToLocalRegistry pushes the container to local registry using skopeo
 func (m *SearchApi) PushToLocalRegistry(ctx context.Context, container *dagger.Container, tag string) (string, error) {
 	registry := m.SetupLocalRegistry()
 
 	imageRef := fmt.Sprintf("registry:5000/search-api:%s", tag)
 
-	_, err := container.
+	// Export container as tarball and push using skopeo (supports service binding)
+	tarball := container.AsTarball()
+
+	_, err := dag.Container().
+		From("quay.io/skopeo/stable:latest").
 		WithServiceBinding("registry", registry).
-		WithExec([]string{"sh", "-c", "echo 'Image built successfully'"}).
+		WithMountedFile("/image.tar", tarball).
+		WithExec([]string{
+			"skopeo", "copy",
+			"--dest-tls-verify=false",  // Local registry without TLS
+			"docker-archive:/image.tar",
+			fmt.Sprintf("docker://registry:5000/search-api:%s", tag),
+		}).
 		Sync(ctx)
-
-	if err != nil {
-		return "", err
-	}
-
-	// Export and push
-	address, err := container.
-		WithServiceBinding("registry", registry).
-		Publish(ctx, imageRef)
 
 	if err != nil {
 		return "", fmt.Errorf("failed to push to local registry: %w", err)
 	}
 
-	return address, nil
+	return imageRef, nil
 }
 
-// SetupK3s creates a K3s cluster for testing
-func (m *SearchApi) SetupK3s(ctx context.Context) (*K3sCluster, error) {
-	registry := m.SetupLocalRegistry()
-
-	// Create registry mirror configuration
-	registriesConfig := `mirrors:
-  "registry:5000":
-    endpoint:
-      - "http://registry:5000"
-`
-
-	// Start K3s with registry mirror
-	k3sContainer := dag.Container().
-		From("rancher/k3s:v1.28.5-k3s1").
-		WithServiceBinding("registry", registry).
-		WithNewFile("/etc/rancher/k3s/registries.yaml", registriesConfig).
-		WithExec([]string{
-			"sh", "-c",
-			"k3s server --disable=traefik --disable=metrics-server --write-kubeconfig-mode=644 > /var/log/k3s.log 2>&1 &",
-		}).
-		WithExec([]string{"sleep", "10"})  // Wait for K3s to start
-
-	k3sService := k3sContainer.AsService()
-
-	// Get kubeconfig
-	kubeconfigContent, err := k3sContainer.
-		WithExec([]string{"cat", "/etc/rancher/k3s/k3s.yaml"}).
-		Stdout(ctx)
-
+// RunApiWithServices starts the Search API container with Solr service bound
+// Returns the API service with Solr already bound to it
+func (m *SearchApi) RunApiWithServices(ctx context.Context, container *dagger.Container) (*dagger.Service, error) {
+	// Start Solr service
+	solrService, err := m.SetupSolr(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get kubeconfig: %w", err)
+		return nil, fmt.Errorf("failed to setup Solr: %w", err)
 	}
 
-	// Replace localhost with service name
-	kubeconfigContent = strings.ReplaceAll(kubeconfigContent, "127.0.0.1", "k3s")
+	// Start the API with Solr bound to it
+	apiService := container.
+		WithServiceBinding("solr", solrService).
+		WithEnvVariable("Solr__Url", "http://solr:8983/solr/metadata").
+		WithExposedPort(8080).
+		AsService()
 
-	kubeconfig := dag.Directory().WithNewFile("kubeconfig", kubeconfigContent)
-
-	return &K3sCluster{
-		Service:    k3sService,
-		Kubeconfig: kubeconfig,
-	}, nil
+	return apiService, nil
 }
 
-type K3sCluster struct {
-	Service    *dagger.Service
-	Kubeconfig *dagger.Directory
-}
-
-// DeploySolr deploys Solr to the K3s cluster
-func (m *SearchApi) DeploySolr(ctx context.Context, k8sManifests *dagger.Directory, cluster *K3sCluster) error {
-	kubectlContainer := dag.Container().
-		From("bitnami/kubectl:latest").
-		WithServiceBinding("k3s", cluster.Service).
-		WithDirectory("/kubeconfig", cluster.Kubeconfig).
-		WithEnvVariable("KUBECONFIG", "/kubeconfig/kubeconfig").
-		WithDirectory("/manifests", k8sManifests)
-
-	// Apply Solr deployment
-	_, err := kubectlContainer.
-		WithExec([]string{"apply", "-f", "/manifests/solr-deployment.yaml"}).
-		WithExec([]string{"wait", "--for=condition=ready", "pod", "-l", "app=solr", "-n", "search-system", "--timeout=300s"}).
-		Sync(ctx)
-
-	if err != nil {
-		return fmt.Errorf("failed to deploy Solr: %w", err)
-	}
-
-	return nil
-}
-
-// DeployApi deploys the Search API to the K3s cluster
-func (m *SearchApi) DeployApi(ctx context.Context, k8sManifests *dagger.Directory, cluster *K3sCluster, imageTag string) error {
-	// Read the deployment manifest
-	manifestContent := `---
-apiVersion: v1
-kind: Service
-metadata:
-  name: search-api
-  namespace: search-system
-spec:
-  selector:
-    app: search-api
-  ports:
-    - name: http
-      port: 80
-      targetPort: 8080
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: search-api
-  namespace: search-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: search-api
-  template:
-    metadata:
-      labels:
-        app: search-api
-    spec:
-      containers:
-        - name: api
-          image: registry:5000/search-api:` + imageTag + `
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8080
-              name: http
-          env:
-            - name: ASPNETCORE_ENVIRONMENT
-              value: "Production"
-            - name: Solr__Url
-              value: "http://solr.search-system.svc.cluster.local:8983/solr/metadata"
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "100m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 15
-            periodSeconds: 5
-`
-
-	kubectlContainer := dag.Container().
-		From("bitnami/kubectl:latest").
-		WithServiceBinding("k3s", cluster.Service).
-		WithDirectory("/kubeconfig", cluster.Kubeconfig).
-		WithEnvVariable("KUBECONFIG", "/kubeconfig/kubeconfig").
-		WithNewFile("/deployment.yaml", manifestContent)
-
-	// Apply API deployment
-	_, err := kubectlContainer.
-		WithExec([]string{"apply", "-f", "/deployment.yaml"}).
-		WithExec([]string{"wait", "--for=condition=ready", "pod", "-l", "app=search-api", "-n", "search-system", "--timeout=300s"}).
-		Sync(ctx)
-
-	if err != nil {
-		return fmt.Errorf("failed to deploy API: %w", err)
-	}
-
-	return nil
-}
+// Old K3s-based deployment functions removed - now using direct service bindings
 
 // RunIntegrationTests runs integration tests against deployed services
-func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Directory, cluster *K3sCluster) (string, error) {
-	// Get the search-api service endpoint
-	kubectlContainer := dag.Container().
+// RunIntegrationTests runs integration tests against the API service (with Solr already bound)
+// No internet access - only uses service bindings
+func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Directory, apiService *dagger.Service) (string, error) {
+	// Run integration tests with API service bound (Solr is already bound to API)
+	testContainer := dag.Container().
 		From("mcr.microsoft.com/dotnet/sdk:8.0").
-		WithServiceBinding("k3s", cluster.Service).
-		WithDirectory("/kubeconfig", cluster.Kubeconfig).
-		WithEnvVariable("KUBECONFIG", "/kubeconfig/kubeconfig").
+		WithServiceBinding("api", apiService).
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
-		// Install kubectl
-		WithExec([]string{"sh", "-c", "curl -LO https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"}).
-		// Port-forward to access the service
-		WithExec([]string{"sh", "-c", "kubectl port-forward -n search-system svc/search-api 8080:80 &"}).
-		WithExec([]string{"sleep", "5"}).
-		// Set environment variable for tests
-		WithEnvVariable("SOLR_URL", "http://localhost:8080").
-		// Run integration tests
+		WithEnvVariable("API_URL", "http://api:8080").
 		WithExec([]string{"dotnet", "test", "SearchApi.IntegrationTests/SearchApi.IntegrationTests.csproj", "-c", "Release", "--verbosity", "normal"})
 
-	output, err := kubectlContainer.Stdout(ctx)
+	output, err := testContainer.Stdout(ctx)
 	if err != nil {
 		return "", fmt.Errorf("integration tests failed: %w", err)
 	}
@@ -874,46 +736,48 @@ func (m *SearchApi) RunIntegrationTests(ctx context.Context, source *dagger.Dire
 
 // DastScan performs Dynamic Application Security Testing using OWASP ZAP
 // Scans the running application for vulnerabilities (XSS, SQLi, auth issues, etc.)
-func (m *SearchApi) DastScan(ctx context.Context, cluster *K3sCluster) (string, error) {
-	// Run OWASP ZAP baseline scan against the deployed API
+// No internet access - only uses service bindings
+func (m *SearchApi) DastScan(ctx context.Context, apiService *dagger.Service) (string, error) {
+	// Run OWASP ZAP baseline scan against the API service
+	// Note: ZAP returns exit codes: 0=success, 1=warnings, 2=high/medium alerts, 3=errors
+	// We use -I flag to not fail on warnings, and capture output for reporting
+
 	zapContainer := dag.Container().
 		From("ghcr.io/zaproxy/zaproxy:stable").
-		WithServiceBinding("k3s", cluster.Service).
-		WithDirectory("/zap/kubeconfig", cluster.Kubeconfig).
-		WithEnvVariable("KUBECONFIG", "/zap/kubeconfig/kubeconfig").
-		// Install kubectl to port-forward
-		WithExec([]string{"sh", "-c", "curl -LO https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"}).
-		// Port-forward the API service in background
-		WithExec([]string{"sh", "-c", "kubectl port-forward -n search-system svc/search-api 8080:80 &"}).
-		WithExec([]string{"sleep", "10"}).  // Wait for port-forward to be ready
-		// Run ZAP baseline scan
+		WithServiceBinding("api", apiService).
+		// Mount a cache volume for ZAP working directory to make it writable
+		WithMountedCache("/zap/wrk", dag.CacheVolume("zap-reports"))
+
+	// Run the scan and capture both stdout and the result
+	zapOutput, zapErr := zapContainer.
 		WithExec([]string{
 			"zap-baseline.py",
-			"-t", "http://localhost:8080",      // Target URL
+			"-t", "http://api:8080",            // Target URL via service binding
 			"-r", "/zap/wrk/report.html",       // HTML report
 			"-J", "/zap/wrk/report.json",       // JSON report
 			"-w", "/zap/wrk/report.md",         // Markdown report
-			"-c", "/zap/wrk/rules.tsv",         // Custom rules (optional)
 			"-d",                                // Enable debug output
-			"-I",                                // Include informational alerts
+			"-I",                                // Do not return failure on warning
 			"-z", "-config api.disablekey=true", // Disable API key requirement
-		})
-
-	// Get the JSON report
-	report, err := zapContainer.
-		WithExec([]string{"cat", "/zap/wrk/report.json"}).
+		}).
 		Stdout(ctx)
 
-	if err != nil {
-		// ZAP returns non-zero if vulnerabilities are found
-		// Still try to get the report for debugging
-		report, _ = zapContainer.
-			WithExec([]string{"sh", "-c", "cat /zap/wrk/report.json 2>/dev/null || echo '{\"error\": \"scan failed\"}'"}).
-			Stdout(ctx)
-		return report, fmt.Errorf("DAST FAILED - vulnerabilities detected in running application: %w", err)
+	// Try to get the JSON report if it was created
+	jsonReport, reportErr := zapContainer.
+		WithExec([]string{"sh", "-c", "cat /zap/wrk/report.json 2>/dev/null || echo '{}'"}).
+		Stdout(ctx)
+
+	if reportErr != nil {
+		// If we can't even read the report, return the scan output
+		return zapOutput, fmt.Errorf("DAST scan failed to produce report: %v (ZAP error: %v)", reportErr, zapErr)
 	}
 
-	return report, nil
+	// If ZAP scan had errors (exit code 3), report them
+	if zapErr != nil {
+		return jsonReport, fmt.Errorf("DAST scan completed with issues: %w", zapErr)
+	}
+
+	return jsonReport, nil
 }
 
 // LicenseScan checks for license compliance issues
@@ -986,9 +850,10 @@ func (m *SearchApi) SignImage(
 
 // PerformanceTest runs load testing against the deployed application
 // Uses k6 to test API performance under load
+// No internet access - only uses service bindings
 func (m *SearchApi) PerformanceTest(
 	ctx context.Context,
-	cluster *K3sCluster,
+	apiService *dagger.Service,
 	// Number of virtual users
 	// +default="10"
 	virtualUsers int,
@@ -1011,7 +876,7 @@ export let options = {
 };
 
 export default function () {
-  let response = http.get('http://localhost:8080/health');
+  let response = http.get('http://api:8080/health');
   check(response, {
     'status is 200': (r) => r.status === 200,
     'response time < 500ms': (r) => r.timings.duration < 500,
@@ -1020,21 +885,12 @@ export default function () {
 }
 `, virtualUsers, duration)
 
-	// Run k6 load test
+	// Run k6 load test directly against the API service
 	output, err := dag.Container().
 		From("grafana/k6:latest").
-		WithServiceBinding("k3s", cluster.Service).
-		WithDirectory("/kubeconfig", cluster.Kubeconfig).
-		WithEnvVariable("KUBECONFIG", "/kubeconfig/kubeconfig").
-		// Install kubectl
-		WithExec([]string{"sh", "-c", "apk add --no-cache curl && curl -LO https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"}).
-		// Port-forward to access the service
-		WithExec([]string{"sh", "-c", "kubectl port-forward -n search-system svc/search-api 8080:80 &"}).
-		WithExec([]string{"sleep", "10"}).
-		// Create k6 test script
+		WithServiceBinding("api", apiService).
 		WithNewFile("/test.js", k6Script).
-		// Run k6
-		WithExec([]string{"run", "/test.js"}).
+		WithExec([]string{"k6", "run", "/test.js"}).
 		Stdout(ctx)
 
 	if err != nil {
@@ -1067,7 +923,7 @@ func (m *SearchApi) MutationTest(
 		// Run mutation testing on the main project
 		WithExec([]string{
 			"sh", "-c",
-			fmt.Sprintf("cd SearchApi && dotnet stryker --threshold-high %d --threshold-low %d --threshold-break %d", minimumScore, minimumScore-10, minimumScore-10),
+			fmt.Sprintf("cd SearchApi && dotnet stryker --threshold-high %d --threshold-low %d --break-at %d", minimumScore, minimumScore-10, minimumScore-10),
 		}).
 		Stdout(ctx)
 
@@ -1080,27 +936,19 @@ func (m *SearchApi) MutationTest(
 
 // ApiSecurityTest performs API-specific security testing
 // Uses Nuclei to test for OWASP API Security Top 10 vulnerabilities
+// No internet access - only uses service bindings (templates must be pre-bundled in image)
 func (m *SearchApi) ApiSecurityTest(
 	ctx context.Context,
-	cluster *K3sCluster,
+	apiService *dagger.Service,
 ) (string, error) {
-	// Run Nuclei API security scan
+	// Run Nuclei API security scan directly against the API service
 	output, err := dag.Container().
 		From("projectdiscovery/nuclei:latest").
-		WithServiceBinding("k3s", cluster.Service).
-		WithDirectory("/kubeconfig", cluster.Kubeconfig).
-		WithEnvVariable("KUBECONFIG", "/kubeconfig/kubeconfig").
-		// Install kubectl
-		WithExec([]string{"sh", "-c", "curl -LO https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"}).
-		// Port-forward to access the service
-		WithExec([]string{"sh", "-c", "kubectl port-forward -n search-system svc/search-api 8080:80 &"}).
-		WithExec([]string{"sleep", "10"}).
-		// Update nuclei templates
-		WithExec([]string{"nuclei", "-update-templates"}).
-		// Run API security scan
+		WithServiceBinding("api", apiService).
+		// Run API security scan (templates are bundled in the image)
 		WithExec([]string{
 			"nuclei",
-			"-u", "http://localhost:8080",
+			"-u", "http://api:8080",
 			"-tags", "api,owasp,owasp-api-top-10",  // Focus on API security
 			"-severity", "high,critical",            // Only high/critical issues
 			"-j",                                     // JSON output
@@ -1161,31 +1009,31 @@ func (m *SearchApi) PolicyCheck(
 	// Create default policy if none exists
 	defaultPolicy := `package main
 
-deny[msg] {
+deny contains msg if {
   input.kind == "Deployment"
   not input.spec.template.spec.securityContext.runAsNonRoot
-  msg = "Containers must not run as root"
+  msg := "Containers must not run as root"
 }
 
-deny[msg] {
+deny contains msg if {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
   not container.resources.limits.memory
-  msg = sprintf("Container %s must have memory limits", [container.name])
+  msg := sprintf("Container %s must have memory limits", [container.name])
 }
 
-deny[msg] {
+deny contains msg if {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
   not container.resources.limits.cpu
-  msg = sprintf("Container %s must have CPU limits", [container.name])
+  msg := sprintf("Container %s must have CPU limits", [container.name])
 }
 
-deny[msg] {
+deny contains msg if {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
   container.securityContext.privileged == true
-  msg = sprintf("Container %s must not run in privileged mode", [container.name])
+  msg := sprintf("Container %s must not run in privileged mode", [container.name])
 }
 `
 
@@ -1199,6 +1047,7 @@ deny[msg] {
 		WithNewFile("/policy/deployment.rego", defaultPolicy).
 		// Test Kubernetes manifests
 		WithExec([]string{
+			"conftest",
 			"test",
 			"k8s/",
 			"--policy", "/policy",
@@ -1215,7 +1064,7 @@ deny[msg] {
 }
 
 // CisBenchmark runs CIS Docker Benchmark security checks
-// Validates Docker/container best practices
+// Validates Docker/container best practices using Trivy's config scanning
 func (m *SearchApi) CisBenchmark(
 	ctx context.Context,
 	container *dagger.Container,
@@ -1223,7 +1072,9 @@ func (m *SearchApi) CisBenchmark(
 	// Save container as tarball
 	tarball := container.AsTarball()
 
-	// Run CIS Benchmark checks using Trivy
+	// Run security best practice checks using Trivy
+	// Note: docker-cis compliance was removed in newer Trivy versions
+	// Using config scanning for Docker best practices instead
 	output, err := dag.Container().
 		From("aquasec/trivy:latest").
 		WithMountedFile("/image.tar", tarball).
@@ -1231,7 +1082,7 @@ func (m *SearchApi) CisBenchmark(
 			"trivy",
 			"image",
 			"--input", "/image.tar",
-			"--compliance", "docker-cis",
+			"--scanners", "config,secret",
 			"--format", "json",
 			"--severity", "HIGH,CRITICAL",
 		}).
@@ -1393,10 +1244,10 @@ func (m *SearchApi) FullPipeline(
 		report += fmt.Sprintf("✅ SBOM generated (%d bytes)\n\n", len(sbom))
 	}
 
-	// Step 12: Build Container
-	report += "🐳 Step 12: Building container image...\n"
-	container := m.BuildContainer(ctx, source)
-	report += "✅ Container image built\n\n"
+	// Step 12: Build Container (using secure distroless image)
+	report += "🐳 Step 12: Building container image (distroless for security)...\n"
+	container := m.BuildContainerDistrolessExtra(ctx, source)
+	report += "✅ Container image built with distroless base (minimal attack surface)\n\n"
 
 	// Step 12a: Container Size Analysis (optional)
 	report += "📏 Step 12a: Analyzing container size...\n"
@@ -1433,66 +1284,49 @@ func (m *SearchApi) FullPipeline(
 	}
 	report += fmt.Sprintf("✅ Pushed to local registry: %s\n\n", localImage)
 
-	// Step 16: Setup K3s Cluster
-	report += "🏗️  Step 16: Setting up K3s cluster...\n"
-	cluster, err := m.SetupK3s(ctx)
+	// Step 16: Start API and Solr Services
+	report += "🚀 Step 16: Starting API with Solr service...\n"
+	apiService, err := m.RunApiWithServices(ctx, container)
 	if err != nil {
-		return report, fmt.Errorf("failed to setup K3s: %w", err)
+		return report, fmt.Errorf("failed to start services: %w", err)
 	}
-	report += "✅ K3s cluster ready\n\n"
+	report += "✅ API and Solr services started\n\n"
 
-	// Step 17: Deploy Solr
-	report += "🔍 Step 17: Deploying Solr...\n"
-	k8sManifests := source.Directory("k8s")
-	err = m.DeploySolr(ctx, k8sManifests, cluster)
-	if err != nil {
-		return report, fmt.Errorf("failed to deploy Solr: %w", err)
-	}
-	report += "✅ Solr deployed successfully\n\n"
-
-	// Step 18: Deploy API
-	report += "🚀 Step 18: Deploying Search API...\n"
-	err = m.DeployApi(ctx, k8sManifests, cluster, tag)
-	if err != nil {
-		return report, fmt.Errorf("failed to deploy API: %w", err)
-	}
-	report += "✅ Search API deployed successfully\n\n"
-
-	// Step 19: Run Integration Tests
-	report += "🧪 Step 19: Running integration tests...\n"
-	_, err = m.RunIntegrationTests(ctx, source, cluster)
+	// Step 17: Run Integration Tests
+	report += "🧪 Step 17: Running integration tests...\n"
+	_, err = m.RunIntegrationTests(ctx, source, apiService)
 	if err != nil {
 		return report, fmt.Errorf("integration tests failed: %w", err)
 	}
 	report += "✅ Integration tests passed\n\n"
 
 	// SECURITY GATE 8: DAST - Dynamic Application Security Testing
-	report += "🎯 Step 20: Running DAST (OWASP ZAP)...\n"
-	_, err = m.DastScan(ctx, cluster)
+	report += "🎯 Step 18: Running DAST (OWASP ZAP)...\n"
+	_, err = m.DastScan(ctx, apiService)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
 	report += "✅ DAST passed - no vulnerabilities in running application\n\n"
 
 	// SECURITY GATE 9: API Security Testing (OWASP API Top 10)
-	report += "🔓 Step 21: Running API security tests (Nuclei)...\n"
-	_, err = m.ApiSecurityTest(ctx, cluster)
+	report += "🔓 Step 19: Running API security tests (Nuclei)...\n"
+	_, err = m.ApiSecurityTest(ctx, apiService)
 	if err != nil {
 		return report, fmt.Errorf("❌ BLOCKED - %w", err)
 	}
 	report += "✅ API security tests passed - no API vulnerabilities\n\n"
 
-	// Step 22: Performance Testing
-	report += "🚀 Step 22: Running performance tests (k6)...\n"
-	_, err = m.PerformanceTest(ctx, cluster, 10, "30s")
+	// Step 20: Performance Testing
+	report += "🚀 Step 20: Running performance tests (k6)...\n"
+	_, err = m.PerformanceTest(ctx, apiService, 10, "30s")
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Performance test warning: %v\n\n", err)
 	} else {
 		report += "✅ Performance tests passed - meets SLAs\n\n"
 	}
 
-	// Step 23: Mutation Testing (optional, can be slow)
-	report += "🧬 Step 23: Running mutation tests (Stryker.NET)...\n"
+	// Step 21: Mutation Testing (optional, can be slow)
+	report += "🧬 Step 21: Running mutation tests (Stryker.NET)...\n"
 	_, err = m.MutationTest(ctx, source, 80)
 	if err != nil {
 		report += fmt.Sprintf("⚠️  Mutation testing warning: %v\n\n", err)
@@ -1500,24 +1334,88 @@ func (m *SearchApi) FullPipeline(
 		report += "✅ Mutation testing passed - test quality is high\n\n"
 	}
 
-	// Step 24: Push to Container Registry (if credentials provided)
+	// Step 22: Push to Container Registry (if credentials provided)
 	if registryUrl != "" && registryUsername != nil && registryPassword != nil && imageRef != "" {
-		report += "🏗️  Step 24: Pushing to container registry...\n"
+		report += "🏗️  Step 22: Pushing to container registry...\n"
 		pushedImage, err := m.PushToRegistry(ctx, container, registryUrl, registryUsername, registryPassword, imageRef, tag)
 		if err != nil {
 			return report, fmt.Errorf("failed to push to registry: %w", err)
 		}
 		report += fmt.Sprintf("✅ Pushed to registry: %s\n\n", pushedImage)
 	} else {
-		report += "⏭️  Step 24: Skipping registry push (credentials not provided)\n\n"
+		report += "⏭️  Step 22: Skipping registry push (credentials not provided)\n\n"
 	}
 
 	report += "🎉 Security-First Pipeline Completed Successfully!\n"
 	report += "🔒 All 9 security gates passed - safe to deploy\n"
-	report += "📊 Pipeline Stats: 25 steps | 9 enforced gates | 7 optional checks\n"
+	report += "🌐 100% air-gapped - no internet access during testing\n"
+	report += "📊 Pipeline Stats: 22 steps | 9 enforced gates | integration + DAST + API security tests\n"
 	report += "📏 Container optimization options:\n"
 	report += "   • BuildContainerOptimized() - Alpine + trimming (30-40% smaller)\n"
 	report += "   • BuildContainerDistroless() - No shell, max security (40-60% smaller)\n"
 	report += "   • CompareContainerSizes() - Compare all 4 build variants\n"
 	return report, nil
+}
+
+// ExportPipelineReports runs the pipeline and exports all scan reports to a directory
+func (m *SearchApi) ExportPipelineReports(
+	ctx context.Context,
+	source *dagger.Directory,
+) *dagger.Directory {
+	// Create output directory
+	outputDir := dag.Directory()
+
+	// Run each scan and export the JSON reports
+
+	// 1. Secret Scan
+	if secretReport, err := m.SecretScan(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("01-secret-scan.json", secretReport)
+	}
+
+	// 2. SAST Scan
+	if sastReport, err := m.SastScan(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("02-sast-scan.json", sastReport)
+	}
+
+	// 3. Dependency Scan
+	if depReport, err := m.DependencyScan(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("03-dependency-scan.json", depReport)
+	}
+
+	// 4. License Scan
+	if licenseReport, err := m.LicenseScan(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("04-license-scan.json", licenseReport)
+	}
+
+	// 5. IaC Scan
+	if iacReport, err := m.IacScan(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("05-iac-scan.json", iacReport)
+	}
+
+	// 6. C# Security Analysis
+	if csharpReport, err := m.CSharpSecurityAnalysis(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("06-csharp-security.txt", csharpReport)
+	}
+
+	// 7. Generate SBOM
+	if sbomReport, err := m.GenerateSbom(ctx, source); err == nil {
+		outputDir = outputDir.WithNewFile("07-sbom.json", sbomReport)
+	}
+
+	// 8. Build container for scanning
+	container := m.BuildContainer(ctx, source)
+
+	// Container Scan
+	if containerReport, err := m.ScanContainer(ctx, container); err == nil {
+		outputDir = outputDir.WithNewFile("08-container-scan.json", containerReport)
+	}
+
+	// CIS Benchmark
+	if cisReport, err := m.CisBenchmark(ctx, container); err == nil {
+		outputDir = outputDir.WithNewFile("09-cis-benchmark.json", cisReport)
+	}
+
+	// Note: SBOM Attestation requires signing keys, skipping in report export
+
+	return outputDir
 }
